@@ -1,17 +1,30 @@
-import React from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import React, {useState} from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {colors, radius, spacing} from '../theme/colors';
 import {
-  BellIcon,
   ChevronRightIcon,
-  DownloadIcon,
-  ProfileIcon,
-  StarIcon,
+  CrownIcon,
+  EditIcon,
+  HelpIcon,
+  KeyIcon,
+  LogOutIcon,
+  MailIcon,
+  ShieldIcon,
+  SlidersIcon,
+  WifiIcon,
 } from '../components/icons';
+import {useAuth} from '../context/AuthContext';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
@@ -20,53 +33,101 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-export function ProfileScreen({navigation}: Props) {
-  const logout = () =>
-    navigation.getParent()?.reset({index: 0, routes: [{name: 'Auth'}]});
+export function ProfileScreen(_props: Props) {
+  const {user, signOut} = useAuth();
+  const [wifiOnly, setWifiOnly] = useState(true);
+
+  const logout = () => {
+    void signOut();
+  };
+
+  const displayName = user?.name ?? 'Julian Sterling';
+  const initials = (user?.name ?? 'JS')
+    .split(' ')
+    .map(s => s[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+  const displayEmail = user?.email ?? 'julian@cinestream.app';
+  const isAdmin = user?.role === 'admin';
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.title}>Profile</Text>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.brand}>CINESTREAM</Text>
+        </View>
 
-        <View style={styles.card}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarInitials}>PB</Text>
+        <View style={styles.profileHead}>
+          <View style={styles.avatarRing}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarInitials}>{initials}</Text>
+            </View>
+            <Pressable style={styles.avatarEdit} hitSlop={8}>
+              <EditIcon size={12} color={colors.brandText} />
+            </Pressable>
           </View>
-          <View style={styles.userInfo}>
-            <Text style={styles.userName}>Prabhat B.</Text>
-            <Text style={styles.userEmail}>prabhat@cinestream.app</Text>
-          </View>
-          <View style={styles.pill}>
-            <Text style={styles.pillText}>Premium</Text>
+          <Text style={styles.userName}>{displayName}</Text>
+          <View style={styles.premiumBadge}>
+            <CrownIcon size={12} color="#ffb400" />
+            <Text style={styles.premiumBadgeText}>
+              {isAdmin ? 'ADMIN' : 'PREMIUM MEMBER'}
+            </Text>
           </View>
         </View>
 
         <View style={styles.statsRow}>
-          <Stat label="Watched" value="47" />
+          <Stat label="Watched" value="124" />
           <View style={styles.statDivider} />
-          <Stat label="My List" value="12" />
+          <Stat label="Watchlist" value="48" />
           <View style={styles.statDivider} />
-          <Stat label="Downloads" value="3" />
+          <Stat label="Reviews" value="12" />
         </View>
 
-        <Section title="Account">
-          <Row icon={<ProfileIcon size={20} />} label="Manage profiles" />
-          <Row icon={<StarIcon size={20} color={colors.textPrimary} />} label="Ratings & reviews" />
-          <Row icon={<BellIcon size={20} />} label="Notifications" />
+        <Section title="App Settings">
+          <Row
+            icon={<SlidersIcon size={18} color={colors.textPrimary} />}
+            label="Video Quality"
+            hint="Auto"
+          />
+          <SwitchRow
+            icon={<WifiIcon size={18} color={colors.textPrimary} />}
+            label="Download over Wi-Fi only"
+            value={wifiOnly}
+            onValueChange={setWifiOnly}
+          />
         </Section>
 
-        <Section title="App">
-          <Row icon={<DownloadIcon size={20} />} label="Downloads settings" hint="Wi-Fi only" />
-          <Row label="Playback quality" hint="Auto" />
-          <Row label="Language" hint="English" />
-          <Row label="About CineStream" />
+        <Section title="Account">
+          <Row
+            icon={<MailIcon size={18} color={colors.textPrimary} />}
+            label="Email"
+            hint={displayEmail}
+          />
+          <Row
+            icon={<KeyIcon size={18} color={colors.textPrimary} />}
+            label="Change Password"
+          />
+        </Section>
+
+        <Section title="Support & Legal">
+          <Row
+            icon={<ShieldIcon size={18} color={colors.textPrimary} />}
+            label="Privacy Policy"
+          />
+          <Row
+            icon={<HelpIcon size={18} color={colors.textPrimary} />}
+            label="Help Center"
+          />
         </Section>
 
         <Pressable
           onPress={logout}
           style={({pressed}) => [styles.logout, pressed && styles.pressed]}>
-          <Text style={styles.logoutText}>Sign Out</Text>
+          <LogOutIcon size={16} color={colors.brand} />
+          <Text style={styles.logoutText}>Log Out</Text>
         </Pressable>
 
         <Text style={styles.version}>CineStream v0.1.0</Text>
@@ -93,22 +154,50 @@ function Section({title, children}: {title: string; children: React.ReactNode}) 
   );
 }
 
-function Row({
-  icon,
-  label,
-  hint,
-}: {
+type RowProps = {
   icon?: React.ReactNode;
   label: string;
   hint?: string;
+  onPress?: () => void;
+};
+
+function Row({icon, label, hint, onPress}: RowProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({pressed}) => [styles.row, pressed && styles.pressed]}>
+      {icon ? <View style={styles.rowIcon}>{icon}</View> : <View style={styles.rowIcon} />}
+      <View style={styles.rowLabelWrap}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        {hint ? <Text style={styles.rowHint}>{hint}</Text> : null}
+      </View>
+      <ChevronRightIcon size={16} color={colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function SwitchRow({
+  icon,
+  label,
+  value,
+  onValueChange,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
 }) {
   return (
-    <Pressable style={({pressed}) => [styles.row, pressed && styles.pressed]}>
+    <View style={styles.row}>
       {icon ? <View style={styles.rowIcon}>{icon}</View> : <View style={styles.rowIcon} />}
-      <Text style={styles.rowLabel}>{label}</Text>
-      {hint ? <Text style={styles.rowHint}>{hint}</Text> : null}
-      <ChevronRightIcon size={18} color={colors.textMuted} />
-    </Pressable>
+      <Text style={styles.rowLabelInline}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{true: colors.brand, false: '#333'}}
+        thumbColor="#fff"
+      />
+    </View>
   );
 }
 
@@ -116,66 +205,76 @@ const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: colors.background},
   scroll: {
     paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: spacing.xxl + 40,
   },
-  title: {
-    color: colors.textPrimary,
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
+  header: {alignItems: 'center', paddingVertical: spacing.sm},
+  brand: {
+    color: colors.brand,
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.6,
   },
-  card: {
-    flexDirection: 'row',
+  profileHead: {
     alignItems: 'center',
-    padding: spacing.md,
-    borderRadius: radius.md,
-    backgroundColor: colors.glassBg,
-    borderWidth: 1,
-    borderColor: colors.glassBorder,
+    marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
+  avatarRing: {
+    padding: 3,
+    borderRadius: 44,
+    borderWidth: 2,
+    borderColor: colors.brand,
+    marginBottom: 10,
+  },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: colors.brand,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitials: {
-    color: colors.brandText,
-    fontSize: 18,
+    color: colors.textPrimary,
+    fontSize: 26,
     fontWeight: '800',
   },
-  userInfo: {
-    flex: 1,
-    marginLeft: spacing.md,
+  avatarEdit: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.background,
   },
   userName: {
     color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.3,
   },
-  userEmail: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  pill: {
+  premiumBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: 'rgba(229,9,20,0.15)',
+    backgroundColor: 'rgba(255,180,0,0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(229,9,20,0.4)',
+    borderColor: 'rgba(255,180,0,0.4)',
+    marginTop: 6,
   },
-  pillText: {
-    color: colors.textAccent,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+  premiumBadgeText: {
+    color: '#ffb400',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
   statsRow: {
     flexDirection: 'row',
@@ -184,16 +283,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.glassBorder,
     paddingVertical: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   stat: {flex: 1, alignItems: 'center'},
   statValue: {color: colors.textPrimary, fontSize: 20, fontWeight: '800'},
-  statLabel: {color: colors.textMuted, fontSize: 11, marginTop: 4, letterSpacing: 0.4},
+  statLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginTop: 4,
+    letterSpacing: 0.4,
+  },
   statDivider: {width: 1, backgroundColor: colors.glassBorder},
   section: {marginBottom: spacing.md},
   sectionTitle: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
@@ -210,38 +314,36 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 52,
+    minHeight: 54,
     paddingHorizontal: spacing.md,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.glassBorder,
   },
   pressed: {opacity: 0.75},
   rowIcon: {width: 24, alignItems: 'center'},
-  rowLabel: {
+  rowLabelWrap: {flex: 1, marginLeft: spacing.sm + 2},
+  rowLabel: {color: colors.textPrimary, fontSize: 14, fontWeight: '500'},
+  rowLabelInline: {
     flex: 1,
     color: colors.textPrimary,
     fontSize: 14,
     marginLeft: spacing.sm + 2,
+    fontWeight: '500',
   },
-  rowHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginRight: spacing.sm,
-  },
+  rowHint: {color: colors.textMuted, fontSize: 12, marginTop: 2},
   logout: {
     height: 50,
     borderRadius: radius.md,
-    borderColor: 'rgba(229,9,20,0.4)',
+    borderColor: 'rgba(229,9,20,0.5)',
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.md,
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: spacing.sm,
   },
-  logoutText: {
-    color: colors.textAccent,
-    fontSize: 15,
-    fontWeight: '700',
-  },
+  logoutText: {color: colors.brand, fontSize: 15, fontWeight: '700'},
   version: {
     color: colors.textMuted,
     fontSize: 11,

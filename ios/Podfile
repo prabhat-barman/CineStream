@@ -6,6 +6,13 @@ require Pod::Executable.execute_command('node', ['-p',
   )', __dir__]).strip
 
 platform :ios, min_ios_version_supported
+
+# Force New Architecture on for third-party libs whose podspecs gate
+# `install_modules_dependencies` behind this env var (e.g. @react-native-google-signin/google-signin).
+# Without this, their TurboModule specs aren't registered and JS
+# `TurboModuleRegistry.getEnforcing('RNGoogleSignin')` throws at runtime.
+ENV['RCT_NEW_ARCH_ENABLED'] = '1'
+
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']
@@ -16,6 +23,11 @@ end
 
 target 'CineStream' do
   config = use_native_modules!
+
+  # Required by GoogleSignIn (v9+) — AppCheckCore is Swift and depends on
+  # these Obj-C pods, so they need to expose module maps.
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'RecaptchaInterop', :modular_headers => true
 
   use_react_native!(
     :path => config[:reactNativePath],

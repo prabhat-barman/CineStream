@@ -1,21 +1,35 @@
 import React from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {ActivityIndicator, Pressable, StyleSheet, Text, View} from 'react-native';
 import {colors, radius} from '../theme/colors';
 
 type Props = {
   label: string;
   icon: React.ReactNode;
   onPress?: () => void;
+  loading?: boolean;
+  disabled?: boolean;
 };
 
-export function SocialButton({label, icon, onPress}: Props) {
+export function SocialButton({label, icon, onPress, loading, disabled}: Props) {
+  const isDisabled = disabled || loading;
   return (
     <Pressable
       onPress={onPress}
-      android_ripple={{color: '#ffffff10'}}
-      style={({pressed}) => [styles.btn, pressed && styles.pressed]}>
-      <View style={styles.icon}>{icon}</View>
-      <Text style={styles.label}>{label}</Text>
+      disabled={isDisabled}
+      android_ripple={isDisabled ? undefined : {color: '#ffffff10'}}
+      style={({pressed}) => [
+        styles.btn,
+        pressed && !isDisabled && styles.pressed,
+        isDisabled && styles.disabled,
+      ]}>
+      {loading ? (
+        <ActivityIndicator color={colors.textPrimary} />
+      ) : (
+        <>
+          <View style={styles.icon}>{icon}</View>
+          <Text style={styles.label}>{label}</Text>
+        </>
+      )}
     </Pressable>
   );
 }
@@ -34,6 +48,9 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  disabled: {
+    opacity: 0.5,
   },
   icon: {
     marginRight: 4,

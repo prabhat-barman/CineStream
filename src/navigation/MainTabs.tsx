@@ -2,11 +2,13 @@ import React from 'react';
 import {Platform, StyleSheet} from 'react-native';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {HomeScreen} from '../screens/HomeScreen';
+import {DiscoverScreen} from '../screens/DiscoverScreen';
 import {SearchScreen} from '../screens/SearchScreen';
-import {DownloadsScreen} from '../screens/DownloadsScreen';
+import {WatchlistScreen} from '../screens/WatchlistScreen';
 import {ProfileScreen} from '../screens/ProfileScreen';
 import {
-  DownloadIcon,
+  BookmarkIcon,
+  CompassIcon,
   HomeIcon,
   ProfileIcon,
   SearchIcon,
@@ -15,8 +17,9 @@ import {colors} from '../theme/colors';
 
 export type MainTabParamList = {
   Home: undefined;
+  Discover: undefined;
   Search: undefined;
-  Downloads: undefined;
+  Watchlist: undefined;
   Profile: undefined;
 };
 
@@ -27,21 +30,23 @@ export function MainTabs() {
     <Tab.Navigator
       screenOptions={({route}) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.textPrimary,
+        tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarShowLabel: true,
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.label,
         tabBarIcon: ({focused, color}) => {
-          const size = 24;
+          const size = 22;
           const c = focused ? colors.brand : color;
           switch (route.name) {
             case 'Home':
               return <HomeIcon size={size} color={c} />;
+            case 'Discover':
+              return <CompassIcon size={size} color={c} />;
             case 'Search':
               return <SearchIcon size={size} color={c} />;
-            case 'Downloads':
-              return <DownloadIcon size={size} color={c} />;
+            case 'Watchlist':
+              return <BookmarkIcon size={size} color={c} filled={focused} />;
             case 'Profile':
               return <ProfileIcon size={size} color={c} />;
           }
@@ -49,8 +54,9 @@ export function MainTabs() {
         },
       })}>
       <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Discover" component={DiscoverScreen} />
       <Tab.Screen name="Search" component={SearchScreen} />
-      <Tab.Screen name="Downloads" component={DownloadsScreen} />
+      <Tab.Screen name="Watchlist" component={WatchlistScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
@@ -58,16 +64,17 @@ export function MainTabs() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: 'rgba(10,10,10,0.95)',
+    backgroundColor: 'rgba(10,10,10,0.96)',
     borderTopColor: colors.glassBorder,
     borderTopWidth: StyleSheet.hairlineWidth,
-    height: Platform.select({ios: 84, android: 64}),
+    height: Platform.select({ios: 82, android: 62}),
     paddingTop: 8,
-    paddingBottom: Platform.select({ios: 24, android: 10}),
+    paddingBottom: Platform.select({ios: 24, android: 8}),
   },
   label: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '600',
     marginTop: 2,
+    letterSpacing: 0.2,
   },
 });

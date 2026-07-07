@@ -1,6 +1,5 @@
 import React, {useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
-import type {CompositeScreenProps} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {AuthLayout} from '../components/AuthLayout';
 import {AuthInput} from '../components/AuthInput';
@@ -9,27 +8,47 @@ import {SocialButton} from '../components/SocialButton';
 import {Checkbox} from '../components/Checkbox';
 import {AppleIcon, GoogleIcon, LockIcon, MailIcon} from '../components/icons';
 import {colors, spacing} from '../theme/colors';
+import {useAuth} from '../context/AuthContext';
+import {ApiError} from '../lib/api';
+import {isAppleAuthAvailable, SocialSignInCancelled} from '../lib/oauth';
 import type {AuthStackParamList} from '../navigation/AuthNavigator';
-import type {RootStackParamList} from '../navigation/RootNavigator';
 
-type Props = CompositeScreenProps<
-  NativeStackScreenProps<AuthStackParamList, 'Login'>,
-  NativeStackScreenProps<RootStackParamList>
->;
+type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+
+type Busy = 'email' | 'google' | 'apple' | null;
 
 export function LoginScreen({navigation}: Props) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const {signIn, signInWithGoogle, signInWithApple} = useAuth();
+  const [email, setEmail] = useState('demo@cinestream.app');
+  const [password, setPassword] = useState('demo123');
+  const [remember, setRemember] = useState(true);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const onSignIn = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      navigation.getParent()?.reset({index: 0, routes: [{name: 'Main'}]});
-    }, 700);
+  const runAuth = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
+    setError(null);
+    setBusy(kind);
+    try {
+      await fn();
+    } catch (err) {
+      if (err instanceof SocialSignInCancelled) {
+        return;
+      }
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(null);
+    }
   };
+
+  const onSignIn = () => runAuth('email', () => signIn(email.trim(), password));
+  const onGoogle = () => runAuth('google', signInWithGoogle);
+  const onApple = () => runAuth('apple', signInWithApple);
 
   return (
     <AuthLayout>
@@ -52,14 +71,22 @@ export function LoginScreen({navigation}: Props) {
         />
       </View>
 
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
       <View style={styles.row}>
         <Checkbox label="Remember me" checked={remember} onChange={setRemember} />
-        <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={8}>
+        <Pressable
+          onPress={() => navigation.navigate('ForgotPassword')}
+          hitSlop={8}>
           <Text style={styles.link}>Forgot password?</Text>
         </Pressable>
       </View>
 
-      <PrimaryButton label="Sign In" onPress={onSignIn} loading={loading} />
+      <PrimaryButton
+        label="Sign In"
+        onPress={onSignIn}
+        loading={busy === 'email'}
+      />
 
       <View style={styles.dividerRow}>
         <View style={styles.divider} />
@@ -68,8 +95,22 @@ export function LoginScreen({navigation}: Props) {
       </View>
 
       <View style={styles.social}>
-        <SocialButton label="Google" icon={<GoogleIcon />} />
-        <SocialButton label="Apple" icon={<AppleIcon />} />
+        <SocialButton
+          label="Google"
+          icon={<GoogleIcon />}
+          onPress={onGoogle}
+          loading={busy === 'google'}
+          disabled={busy !== null && busy !== 'google'}
+        />
+        {isAppleAuthAvailable ? (
+          <SocialButton
+            label="Apple"
+            icon={<AppleIcon />}
+            onPress={onApple}
+            loading={busy === 'apple'}
+            disabled={busy !== null && busy !== 'apple'}
+          />
+        ) : null}
       </View>
 
       <View style={styles.bottomRow}>
@@ -92,13 +133,20 @@ const styles = StyleSheet.create({
   },
   inputs: {
     gap: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  error: {
+    color: colors.brand,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.lg,
+    marginTop: spacing.sm,
   },
   link: {
     color: colors.textAccent,

@@ -1,0 +1,177 @@
+import React from 'react';
+import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
+import LinearGradient from 'react-native-linear-gradient';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {colors, radius, spacing, typography} from '../theme/colors';
+import {PrimaryButton} from '../components/PrimaryButton';
+import {PlayIcon} from '../components/icons';
+import {featuredMovie, movies} from '../data/movies';
+import type {RootStackParamList} from '../navigation/RootNavigator';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
+
+const COLUMN_POSTERS = [
+  ['m2', 's1', 'm5', 'm7'],
+  ['m4', 'm10', 's2', 'm6'],
+  ['m11', 'm3', 'm8', 's3'],
+];
+
+export function OnboardingScreen({navigation}: Props) {
+  const onContinue = () => navigation.replace('Auth');
+
+  return (
+    <View style={styles.root}>
+      <View style={styles.posterWall} pointerEvents="none">
+        {COLUMN_POSTERS.map((col, i) => (
+          <View key={i} style={[styles.column, i === 1 && styles.columnOffset]}>
+            {col.map(id => {
+              const m = movies.find(mv => mv.id === id);
+              if (!m) {
+                return null;
+              }
+              return (
+                <Image
+                  key={id}
+                  source={{uri: m.poster}}
+                  style={styles.poster}
+                  resizeMode="cover"
+                />
+              );
+            })}
+          </View>
+        ))}
+      </View>
+
+      <LinearGradient
+        colors={['rgba(10,10,10,0.6)', 'rgba(10,10,10,0.85)', colors.background]}
+        locations={[0, 0.55, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.header}>
+          <Text style={styles.logo}>CINESTREAM</Text>
+        </View>
+
+        <View style={styles.hero}>
+          <View style={styles.playCircle}>
+            <PlayIcon size={22} color={colors.brandText} />
+          </View>
+          <Text style={styles.heroTitle}>Unlimited Streaming</Text>
+          <Text style={styles.heroBody}>
+            Access thousands of 4K cinematic masterpieces and TV shows at your
+            fingertips.
+          </Text>
+        </View>
+
+        <View style={styles.hint}>
+          <Image
+            source={{uri: featuredMovie.backdrop}}
+            style={styles.hintImg}
+            resizeMode="cover"
+          />
+          <LinearGradient
+            colors={['rgba(10,10,10,0.1)', 'rgba(10,10,10,0.85)']}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
+
+        <View style={styles.footer}>
+          <PrimaryButton label="Continue" onPress={onContinue} />
+          <Pressable
+            onPress={onContinue}
+            style={styles.skip}
+            hitSlop={8}>
+            <Text style={styles.skipText}>SKIP INTRODUCTION</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: {flex: 1, backgroundColor: colors.background, overflow: 'hidden'},
+  posterWall: {
+    position: 'absolute',
+    top: -60,
+    left: -20,
+    right: -20,
+    bottom: -60,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    opacity: 0.65,
+  },
+  column: {flex: 1, gap: 10},
+  columnOffset: {transform: [{translateY: -60}]},
+  poster: {
+    width: '100%',
+    height: 220,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  safe: {flex: 1, paddingHorizontal: spacing.md + 4},
+  header: {alignItems: 'center', paddingVertical: spacing.md},
+  logo: {
+    color: colors.brand,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  hero: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  playCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    shadowColor: colors.brand,
+    shadowOpacity: 0.55,
+    shadowRadius: 24,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 10,
+  },
+  heroTitle: {
+    color: colors.textPrimary,
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    lineHeight: typography.logo.lineHeight,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  heroBody: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    maxWidth: 320,
+  },
+  hint: {
+    height: 0,
+  },
+  hintImg: {display: 'none'},
+  footer: {
+    paddingBottom: spacing.md,
+    gap: spacing.md,
+  },
+  skip: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  skipText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+  },
+});

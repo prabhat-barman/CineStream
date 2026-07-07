@@ -1,44 +1,71 @@
 import React, {useState} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
-import type {CompositeScreenProps} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {AuthLayout} from '../components/AuthLayout';
 import {AuthInput} from '../components/AuthInput';
 import {PrimaryButton} from '../components/PrimaryButton';
+import {SocialButton} from '../components/SocialButton';
 import {Checkbox} from '../components/Checkbox';
-import {LockIcon, MailIcon, UserIcon} from '../components/icons';
+import {AppleIcon, GoogleIcon, LockIcon, MailIcon, UserIcon} from '../components/icons';
 import {colors, spacing} from '../theme/colors';
+import {useAuth} from '../context/AuthContext';
+import {ApiError} from '../lib/api';
+import {isAppleAuthAvailable, SocialSignInCancelled} from '../lib/oauth';
 import type {AuthStackParamList} from '../navigation/AuthNavigator';
-import type {RootStackParamList} from '../navigation/RootNavigator';
 
-type Props = CompositeScreenProps<
-  NativeStackScreenProps<AuthStackParamList, 'Register'>,
-  NativeStackScreenProps<RootStackParamList>
->;
+type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
+
+type Busy = 'email' | 'google' | 'apple' | null;
 
 export function RegisterScreen({navigation}: Props) {
+  const {signUp, signInWithGoogle, signInWithApple} = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [accept, setAccept] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<Busy>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const canSubmit =
-    !!name && !!email && !!password && password === confirm && accept;
+    name.trim().length >= 2 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    password.length >= 6 &&
+    password === confirm &&
+    accept;
 
-  const onSubmit = () => {
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      navigation.getParent()?.reset({index: 0, routes: [{name: 'Main'}]});
-    }, 700);
+  const runAuth = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
+    setError(null);
+    setBusy(kind);
+    try {
+      await fn();
+    } catch (err) {
+      if (err instanceof SocialSignInCancelled) {
+        return;
+      }
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(null);
+    }
   };
+
+  const onSubmit = () =>
+    runAuth('email', () => signUp(name.trim(), email.trim(), password));
+  const onGoogle = () => runAuth('google', signInWithGoogle);
+  const onApple = () => runAuth('apple', signInWithApple);
 
   return (
     <AuthLayout>
       <Text style={styles.heading}>Create Account</Text>
-      <Text style={styles.subheading}>Join the show — it only takes a minute</Text>
+      <Text style={styles.subheading}>
+        Join the show — it only takes a minute
+      </Text>
 
       <View style={styles.inputs}>
         <AuthInput
@@ -56,7 +83,7 @@ export function RegisterScreen({navigation}: Props) {
         />
         <AuthInput
           icon={<LockIcon />}
-          placeholder="Password"
+          placeholder="Password (min 6 chars)"
           secure
           value={password}
           onChangeText={setPassword}
@@ -70,6 +97,8 @@ export function RegisterScreen({navigation}: Props) {
         />
       </View>
 
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
       <View style={styles.termsRow}>
         <Checkbox
           label="I agree to the Terms & Privacy Policy"
@@ -81,9 +110,34 @@ export function RegisterScreen({navigation}: Props) {
       <PrimaryButton
         label="Create Account"
         onPress={onSubmit}
-        loading={loading}
-        disabled={!canSubmit}
+        loading={busy === 'email'}
+        disabled={!canSubmit || (busy !== null && busy !== 'email')}
       />
+
+      <View style={styles.dividerRow}>
+        <View style={styles.divider} />
+        <Text style={styles.dividerText}>OR SIGN UP WITH</Text>
+        <View style={styles.divider} />
+      </View>
+
+      <View style={styles.social}>
+        <SocialButton
+          label="Google"
+          icon={<GoogleIcon />}
+          onPress={onGoogle}
+          loading={busy === 'google'}
+          disabled={busy !== null && busy !== 'google'}
+        />
+        {isAppleAuthAvailable ? (
+          <SocialButton
+            label="Apple"
+            icon={<AppleIcon />}
+            onPress={onApple}
+            loading={busy === 'apple'}
+            disabled={busy !== null && busy !== 'apple'}
+          />
+        ) : null}
+      </View>
 
       <View style={styles.bottomRow}>
         <Text style={styles.bottomText}>Already have an account? </Text>
@@ -113,10 +167,40 @@ const styles = StyleSheet.create({
   },
   inputs: {
     gap: spacing.md,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  error: {
+    color: colors.brand,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   termsRow: {
     marginBottom: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  divider: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.divider,
+  },
+  dividerText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    letterSpacing: 1.2,
+    paddingHorizontal: spacing.md,
+  },
+  social: {
+    flexDirection: 'row',
+    gap: spacing.md,
   },
   bottomRow: {
     flexDirection: 'row',
