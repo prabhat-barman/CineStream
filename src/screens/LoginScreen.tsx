@@ -8,9 +8,9 @@ import {SocialButton} from '../components/SocialButton';
 import {Checkbox} from '../components/Checkbox';
 import {AppleIcon, GoogleIcon, LockIcon, MailIcon} from '../components/icons';
 import {colors, spacing} from '../theme/colors';
-import {useAuth} from '../context/AuthContext';
+import {SocialSignInCancelled, useAuth} from '../context/AuthContext';
 import {ApiError} from '../lib/api';
-import {isAppleAuthAvailable, SocialSignInCancelled} from '../lib/oauth';
+import {isAppleAuthAvailable} from '../lib/oauth';
 import type {AuthStackParamList} from '../navigation/AuthNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -19,20 +19,25 @@ type Busy = 'email' | 'google' | 'apple' | null;
 
 export function LoginScreen({navigation}: Props) {
   const {signIn, signInWithGoogle, signInWithApple} = useAuth();
-  const [email, setEmail] = useState('demo@cinestream.app');
-  const [password, setPassword] = useState('demo123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const runAuth = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
+  const onSignIn = async () => {
     setError(null);
-    setBusy(kind);
+    setBusy('email');
     try {
-      await fn();
+      await signIn(email.trim(), password);
     } catch (err) {
-      if (err instanceof SocialSignInCancelled) {
-        return;
+      if (err instanceof ApiError && err.status === 400) {
+        // Backend returns 400 if the OTT user hasn't verified their email yet.
+        // Redirect them to the OTP screen.
+        if (err.message?.toLowerCase().includes('otp')) {
+          navigation.navigate('VerifyOtp', {email: email.trim()});
+          return;
+        }
       }
       const message =
         err instanceof ApiError
@@ -46,9 +51,29 @@ export function LoginScreen({navigation}: Props) {
     }
   };
 
-  const onSignIn = () => runAuth('email', () => signIn(email.trim(), password));
-  const onGoogle = () => runAuth('google', signInWithGoogle);
-  const onApple = () => runAuth('apple', signInWithApple);
+  const runSocial = async (
+    provider: Exclude<Busy, 'email' | null>,
+    fn: () => Promise<void>,
+  ) => {
+    setError(null);
+    setBusy(provider);
+    try {
+      await fn();
+    } catch (err) {
+      if (err instanceof SocialSignInCancelled) {
+        return;
+      }
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Sign in failed. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -86,6 +111,7 @@ export function LoginScreen({navigation}: Props) {
         label="Sign In"
         onPress={onSignIn}
         loading={busy === 'email'}
+        disabled={busy !== null && busy !== 'email'}
       />
 
       <View style={styles.dividerRow}>
@@ -98,17 +124,17 @@ export function LoginScreen({navigation}: Props) {
         <SocialButton
           label="Google"
           icon={<GoogleIcon />}
-          onPress={onGoogle}
           loading={busy === 'google'}
           disabled={busy !== null && busy !== 'google'}
+          onPress={() => runSocial('google', signInWithGoogle)}
         />
         {isAppleAuthAvailable ? (
           <SocialButton
             label="Apple"
             icon={<AppleIcon />}
-            onPress={onApple}
             loading={busy === 'apple'}
             disabled={busy !== null && busy !== 'apple'}
+            onPress={() => runSocial('apple', signInWithApple)}
           />
         ) : null}
       </View>

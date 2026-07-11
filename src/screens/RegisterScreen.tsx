@@ -6,11 +6,17 @@ import {AuthInput} from '../components/AuthInput';
 import {PrimaryButton} from '../components/PrimaryButton';
 import {SocialButton} from '../components/SocialButton';
 import {Checkbox} from '../components/Checkbox';
-import {AppleIcon, GoogleIcon, LockIcon, MailIcon, UserIcon} from '../components/icons';
+import {
+  AppleIcon,
+  GoogleIcon,
+  LockIcon,
+  MailIcon,
+  UserIcon,
+} from '../components/icons';
 import {colors, spacing} from '../theme/colors';
-import {useAuth} from '../context/AuthContext';
+import {SocialSignInCancelled, useAuth} from '../context/AuthContext';
 import {ApiError} from '../lib/api';
-import {isAppleAuthAvailable, SocialSignInCancelled} from '../lib/oauth';
+import {isAppleAuthAvailable} from '../lib/oauth';
 import type {AuthStackParamList} from '../navigation/AuthNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
@@ -21,22 +27,28 @@ export function RegisterScreen({navigation}: Props) {
   const {signUp, signInWithGoogle, signInWithApple} = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const cleanedPhone = phone.replace(/\D/g, '');
   const canSubmit =
     name.trim().length >= 2 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
     password.length >= 6 &&
     password === confirm &&
+    (cleanedPhone.length === 0 || cleanedPhone.length >= 10) &&
     accept;
 
-  const runAuth = async (kind: Exclude<Busy, null>, fn: () => Promise<void>) => {
+  const runSocial = async (
+    provider: Exclude<Busy, 'email' | null>,
+    fn: () => Promise<void>,
+  ) => {
     setError(null);
-    setBusy(kind);
+    setBusy(provider);
     try {
       await fn();
     } catch (err) {
@@ -48,17 +60,41 @@ export function RegisterScreen({navigation}: Props) {
           ? err.message
           : err instanceof Error
           ? err.message
-          : 'Something went wrong. Please try again.';
+          : 'Sign up failed. Please try again.';
       setError(message);
     } finally {
       setBusy(null);
     }
   };
 
-  const onSubmit = () =>
-    runAuth('email', () => signUp(name.trim(), email.trim(), password));
-  const onGoogle = () => runAuth('google', signInWithGoogle);
-  const onApple = () => runAuth('apple', signInWithApple);
+  const onSubmit = async () => {
+    setError(null);
+    setBusy('email');
+    try {
+      const res = await signUp({
+        fullName: name.trim(),
+        email: email.trim(),
+        password,
+        phone: cleanedPhone || undefined,
+      });
+      navigation.navigate('VerifyOtp', {
+        email: res.email,
+        devOtp: res.otp,
+        expiresInMinutes: res.otpExpiresInMinutes,
+        emailSent: res.emailSent,
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Something went wrong. Please try again.';
+      setError(message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <AuthLayout>
@@ -80,6 +116,13 @@ export function RegisterScreen({navigation}: Props) {
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
+        />
+        <AuthInput
+          icon={<UserIcon />}
+          placeholder="Phone (optional)"
+          keyboardType="phone-pad"
+          value={phone}
+          onChangeText={setPhone}
         />
         <AuthInput
           icon={<LockIcon />}
@@ -124,17 +167,17 @@ export function RegisterScreen({navigation}: Props) {
         <SocialButton
           label="Google"
           icon={<GoogleIcon />}
-          onPress={onGoogle}
           loading={busy === 'google'}
           disabled={busy !== null && busy !== 'google'}
+          onPress={() => runSocial('google', signInWithGoogle)}
         />
         {isAppleAuthAvailable ? (
           <SocialButton
             label="Apple"
             icon={<AppleIcon />}
-            onPress={onApple}
             loading={busy === 'apple'}
             disabled={busy !== null && busy !== 'apple'}
+            onPress={() => runSocial('apple', signInWithApple)}
           />
         ) : null}
       </View>

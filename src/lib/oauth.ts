@@ -4,10 +4,7 @@ import {
   statusCodes,
   isSuccessResponse,
 } from '@react-native-google-signin/google-signin';
-import appleAuth, {
-  AppleRequestOperation,
-  AppleRequestScope,
-} from '@invertase/react-native-apple-authentication';
+import appleAuth from '@invertase/react-native-apple-authentication';
 import {GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID} from './config';
 
 // ------------------------------
@@ -28,20 +25,26 @@ function ensureGoogleConfigured() {
   if (googleConfigured) {
     return;
   }
-  if (isPlaceholder(GOOGLE_WEB_CLIENT_ID) && isPlaceholder(GOOGLE_IOS_CLIENT_ID)) {
+  const webMissing = isPlaceholder(GOOGLE_WEB_CLIENT_ID);
+  const iosMissing = isPlaceholder(GOOGLE_IOS_CLIENT_ID);
+
+  if (Platform.OS === 'ios' && iosMissing) {
     throw new Error(
-      "Google Sign-In isn't configured yet. Add your OAuth Client IDs to " +
-        'src/lib/config.ts (GOOGLE_WEB_CLIENT_ID + GOOGLE_IOS_CLIENT_ID) ' +
-        'and reload — see the README for the Google Cloud Console setup.',
+      "Google Sign-In isn't configured for iOS yet. Add your iOS OAuth " +
+        'Client ID to src/lib/config.ts (GOOGLE_IOS_CLIENT_ID) and the ' +
+        'iOS URL scheme to ios/CineStream/Info.plist, then rebuild.',
+    );
+  }
+  if (Platform.OS === 'android' && webMissing) {
+    throw new Error(
+      "Google Sign-In isn't configured for Android yet. Add your Web " +
+        'OAuth Client ID to src/lib/config.ts (GOOGLE_WEB_CLIENT_ID) and ' +
+        'register your Android app (package + SHA-1) in Google Console.',
     );
   }
   GoogleSignin.configure({
-    webClientId: isPlaceholder(GOOGLE_WEB_CLIENT_ID)
-      ? undefined
-      : GOOGLE_WEB_CLIENT_ID,
-    iosClientId: isPlaceholder(GOOGLE_IOS_CLIENT_ID)
-      ? undefined
-      : GOOGLE_IOS_CLIENT_ID,
+    webClientId: webMissing ? undefined : GOOGLE_WEB_CLIENT_ID,
+    iosClientId: iosMissing ? undefined : GOOGLE_IOS_CLIENT_ID,
     offlineAccess: false,
     forceCodeForRefreshToken: false,
   });
@@ -118,9 +121,13 @@ export async function signInWithAppleNative(): Promise<AppleIdentityTokenResult>
     throw new Error('Sign in with Apple is only available on iOS 13+.');
   }
 
+  // NOTE: the enums `AppleRequestOperation` / `AppleRequestScope` exist only
+  // as TypeScript types in `@invertase/react-native-apple-authentication` and
+  // are `undefined` at runtime. Use the values exposed on the module instance
+  // instead (`appleAuth.Operation.LOGIN`, `appleAuth.Scope.*`).
   const response = await appleAuth.performRequest({
-    requestedOperation: AppleRequestOperation.LOGIN,
-    requestedScopes: [AppleRequestScope.EMAIL, AppleRequestScope.FULL_NAME],
+    requestedOperation: appleAuth.Operation.LOGIN,
+    requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
   });
 
   const {identityToken, fullName, email} = response;

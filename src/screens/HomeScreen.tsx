@@ -61,8 +61,13 @@ export function HomeScreen({navigation}: Props) {
             resizeMode="cover"
           />
           <LinearGradient
-            colors={['rgba(10,10,10,0.75)', 'rgba(10,10,10,0)', colors.background]}
-            locations={[0, 0.35, 1]}
+            colors={[
+              'rgba(10,10,10,0.35)',
+              'rgba(10,10,10,0)',
+              'rgba(10,10,10,0.9)',
+              colors.background,
+            ]}
+            locations={[0, 0.35, 0.85, 1]}
             style={StyleSheet.absoluteFill}
           />
 
@@ -100,6 +105,7 @@ export function HomeScreen({navigation}: Props) {
                 );
               })}
             </View>
+            <View style={styles.chipsDivider} />
           </SafeAreaView>
 
           <View style={styles.heroBody}>
@@ -284,25 +290,26 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
+    backgroundColor: 'rgba(10,10,10,0.55)',
   },
   heroHeader: {
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
+    paddingTop: spacing.sm + 2,
+    paddingBottom: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   brand: {
     color: colors.brand,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.8,
+    letterSpacing: -0.5,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
   },
   bellDot: {
     position: 'absolute',
@@ -317,33 +324,36 @@ const styles = StyleSheet.create({
   },
   chipsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
     alignItems: 'center',
-    gap: spacing.lg,
-    paddingHorizontal: spacing.md,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
     paddingBottom: spacing.sm,
   },
   chip: {
-    paddingHorizontal: spacing.xs,
     paddingVertical: 4,
     alignItems: 'center',
   },
   chipText: {
-    color: colors.textMuted,
+    color: 'rgba(229, 226, 225, 0.55)',
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   chipTextActive: {
     color: colors.textPrimary,
     fontWeight: '700',
   },
   chipUnderline: {
-    marginTop: 4,
-    width: 22,
-    height: 2,
-    borderRadius: 1,
+    marginTop: 6,
+    height: 2.5,
+    borderRadius: 2,
     backgroundColor: colors.brand,
+    alignSelf: 'stretch',
+  },
+  chipsDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: spacing.md,
   },
   heroBody: {
     paddingHorizontal: spacing.md,

@@ -55,10 +55,11 @@ const styles = StyleSheet.create({
   input: {
     color: colors.textPrimary,
     fontSize: 14,
-    lineHeight: 20,
     paddingHorizontal: 24,
-    paddingVertical: 17,
+    paddingVertical: 0,
     width: '100%',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   inputWithIcon: {
     paddingLeft: 48,
