@@ -76,6 +76,20 @@ jobs:
           fi
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+
+          # Diagnostic: print which service account + project the secret
+          # points at. These identifiers are NOT secret (they're visible on
+          # the GCP IAM page). If distribute fails with 403, this tells us
+          # exactly which principal needs "Firebase App Distribution Admin".
+          echo "----- service account identity -----"
+          node -e '
+            const sa = require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
+            console.log("client_email :", sa.client_email);
+            console.log("project_id   :", sa.project_id);
+            console.log("type         :", sa.type);
+          '
+          echo "------------------------------------"
+
           npx --yes firebase-tools appdistribution:distribute \
             android/app/build/outputs/apk/release/app-release.apk \
             --app 1:55460051377:android:44de0ae4a092b408a6e590 \
