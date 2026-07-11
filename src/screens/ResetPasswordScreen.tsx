@@ -134,6 +134,14 @@ export function ResetPasswordScreen({route, navigation}: Props) {
     setInfo(null);
     try {
       const res = await api.auth.forgotPassword({email});
+      // Mail send failed AND no dev fallback → don't pretend a code was sent;
+      // surface an error so the user can retry instead of waiting forever.
+      if (res.emailSent === false && !res.otp) {
+        setError(
+          "We couldn’t send the reset email right now. Please try again in a moment.",
+        );
+        return;
+      }
       setSecondsLeft((res.otpExpiresInMinutes ?? 10) * 60);
       setInfo(
         res.otp

@@ -30,7 +30,15 @@ export function VerifyOtpScreen({route, navigation}: Props) {
   });
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Hard-fail case: mail send failed on the backend AND no dev OTP fallback
+  // is available. The user can't proceed from this screen — surface it as
+  // an error so it's visually prominent, not an info hint.
+  const [error, setError] = useState<string | null>(() => {
+    if (emailSent === false && !devOtp) {
+      return "We couldn’t send the verification email right now. Please go back and try signing up again in a moment.";
+    }
+    return null;
+  });
   const [info, setInfo] = useState<string | null>(() => {
     if (!devOtp) {
       return null;
