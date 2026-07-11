@@ -126,11 +126,14 @@ type RequestOptions = {
   body?: unknown;
   token?: string | null;
   signal?: AbortSignal;
+  // Overall timeout in ms. Backend is on Render free tier which cold-starts
+  // in ~30-60s, so default is generous.
+  timeoutMs?: number;
 };
 
 async function request<T>(
   path: string,
-  {method = 'GET', body, token, signal}: RequestOptions = {},
+  {method = 'GET', body, token, signal, timeoutMs = 75_000}: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = {Accept: 'application/json'};
   if (body !== undefined) {
@@ -140,20 +143,45 @@ async function request<T>(
     headers.Authorization = `Bearer ${token}`;
   }
 
+  // Compose the caller-supplied AbortSignal with our own timeout so the
+  // request cannot hang forever if the server never responds.
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener('abort', onExternalAbort);
+    }
+  }
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal,
+      signal: controller.signal,
     });
   } catch (err) {
+    if (controller.signal.aborted && !signal?.aborted) {
+      throw new ApiError(
+        'The server took too long to respond. It may be waking up — please try again in a few seconds.',
+        0,
+        err,
+      );
+    }
     throw new ApiError(
-      `Cannot reach the server. Please check your internet connection.`,
+      'Cannot reach the server. Please check your internet connection.',
       0,
       err,
     );
+  } finally {
+    clearTimeout(timeoutId);
+    if (signal) {
+      signal.removeEventListener('abort', onExternalAbort);
+    }
   }
 
   const isJson = res.headers

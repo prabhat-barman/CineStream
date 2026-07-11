@@ -88,6 +88,26 @@ export async function signInWithGoogleNative(): Promise<GoogleIdTokenResult> {
     ) {
       throw new SocialSignInCancelled();
     }
+    // DEVELOPER_ERROR (code 10 on Android) is almost always a misconfigured
+    // OAuth client — usually one of:
+    //   1. SHA-1 of the signing keystore not registered in Google Cloud /
+    //      Firebase console for this package (com.cinestream).
+    //   2. `webClientId` in src/lib/config.ts belongs to a different Google
+    //      Cloud project than the one the Android app is registered in.
+    //   3. `google-services.json` is stale — re-download after adding SHA-1.
+    // Surface a user-actionable message so testers stop guessing.
+    // Note: the library's TypeScript surface doesn't expose DEVELOPER_ERROR
+    // even though the native module emits it, so compare by string literal.
+    if (code === 'DEVELOPER_ERROR' || code === '10') {
+      throw new Error(
+        Platform.OS === 'android'
+          ? "Google Sign-In isn't set up correctly for this build. " +
+            "Register this app's SHA-1 fingerprint in Google Cloud Console " +
+            'under the same project as the Web Client ID, then reinstall.'
+          : "Google Sign-In isn't set up correctly for this build. " +
+            'Verify the iOS OAuth Client ID and URL scheme.',
+      );
+    }
     throw err;
   }
 }
