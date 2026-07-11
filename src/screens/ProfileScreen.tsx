@@ -33,12 +33,16 @@ type Props = CompositeScreenProps<
   NativeStackScreenProps<RootStackParamList>
 >;
 
-export function ProfileScreen(_props: Props) {
+export function ProfileScreen({navigation}: Props) {
   const {user, signOut} = useAuth();
   const [wifiOnly, setWifiOnly] = useState(true);
 
   const logout = () => {
     void signOut();
+  };
+
+  const openChangePassword = () => {
+    navigation.navigate('ChangePassword');
   };
 
   const displayName = user?.name ?? 'Julian Sterling';
@@ -109,6 +113,7 @@ export function ProfileScreen(_props: Props) {
           <Row
             icon={<KeyIcon size={18} color={colors.textPrimary} />}
             label="Change Password"
+            onPress={openChangePassword}
           />
         </Section>
 

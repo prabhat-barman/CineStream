@@ -6,6 +6,7 @@ import {AuthInput} from '../components/AuthInput';
 import {PrimaryButton} from '../components/PrimaryButton';
 import {MailIcon} from '../components/icons';
 import {colors, spacing} from '../theme/colors';
+import {ApiError, api} from '../lib/api';
 import type {AuthStackParamList} from '../navigation/AuthNavigator';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
@@ -14,20 +15,50 @@ export function ForgotPasswordScreen({navigation}: Props) {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const onSubmit = () => {
+  const onSubmit = async () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      return;
+    }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await api.auth.forgotPassword({email: trimmed});
       setSent(true);
-    }, 900);
+      setInfo(
+        res.otp
+          ? `Dev OTP: ${res.otp}`
+          : 'If the email exists, an OTP will be sent.',
+      );
+      // Auto-navigate to reset screen so the user can enter OTP + new password.
+      navigation.navigate('ResetPassword', {
+        email: trimmed,
+        devOtp: res.otp,
+        expiresInMinutes: res.otpExpiresInMinutes ?? 10,
+      });
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+          ? err.message
+          : 'Could not send OTP. Please try again.';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <AuthLayout>
       <Text style={styles.heading}>Forgot Password?</Text>
       <Text style={styles.subheading}>
-        Enter your email and we&apos;ll send you a link to reset your password.
+        Enter your email and we&apos;ll send a 6-digit OTP to reset your
+        password.
       </Text>
 
       <View style={styles.inputs}>
@@ -37,24 +68,26 @@ export function ForgotPasswordScreen({navigation}: Props) {
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
-          editable={!sent}
         />
       </View>
 
-      {sent ? (
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {sent && info ? (
         <View style={styles.successBox}>
           <Text style={styles.successText}>
-            Reset link sent. Check your inbox at{'\n'}
+            {info}
+            {'\n'}
             <Text style={styles.successEmail}>{email}</Text>
           </Text>
         </View>
       ) : null}
 
       <PrimaryButton
-        label={sent ? 'Resend Link' : 'Send Reset Link'}
+        label={sent ? 'Resend OTP' : 'Send OTP'}
         onPress={onSubmit}
         loading={loading}
-        disabled={!email}
+        disabled={!email || loading}
       />
 
       <View style={styles.bottomRow}>
@@ -86,6 +119,12 @@ const styles = StyleSheet.create({
   inputs: {
     gap: spacing.md,
     marginBottom: spacing.lg,
+  },
+  error: {
+    color: colors.brand,
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   successBox: {
     padding: spacing.md,

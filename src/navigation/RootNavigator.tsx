@@ -7,6 +7,7 @@ import {SplashScreen} from '../screens/SplashScreen';
 import {OnboardingScreen} from '../screens/OnboardingScreen';
 import {PlayerScreen} from '../screens/PlayerScreen';
 import {NotificationsScreen} from '../screens/NotificationsScreen';
+import {ChangePasswordScreen} from '../screens/ChangePasswordScreen';
 import {useAuth} from '../context/AuthContext';
 import {colors} from '../theme/colors';
 
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   MovieDetails: {id: string};
   Player: {id: string};
   Notifications: undefined;
+  ChangePassword: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -63,6 +65,11 @@ export function RootNavigator() {
           <Stack.Screen
             name="Notifications"
             component={NotificationsScreen}
+            options={{animation: 'slide_from_right'}}
+          />
+          <Stack.Screen
+            name="ChangePassword"
+            component={ChangePasswordScreen}
             options={{animation: 'slide_from_right'}}
           />
         </>

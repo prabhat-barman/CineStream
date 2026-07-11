@@ -58,6 +58,19 @@ export type AuthTokenResponseData = {
   message?: string;
 };
 
+export type ForgotPasswordResponseData = {
+  message: string;
+  email: string;
+  emailSent: boolean;
+  otpExpiresInMinutes: number;
+  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true)
+  otp?: string;
+};
+
+export type MessageResponseData = {
+  message: string;
+};
+
 // Envelope returned by the backend
 type ApiSuccessEnvelope<T> = {
   success: true;
@@ -220,6 +233,51 @@ export const api = {
         method: 'POST',
         body: input,
       }),
+
+    // Invalidates the current session server-side (bumps tokenVersion so all
+    // existing access + refresh tokens for this user become invalid).
+    logout: (input: {token: string}) =>
+      request<MessageResponseData | Record<string, never>>('/auth/logout', {
+        method: 'POST',
+        token: input.token,
+      }),
+
+    // Authenticated. Changes password for the current user; server bumps
+    // tokenVersion so other sessions get logged out.
+    changePassword: (input: {
+      token: string;
+      currentPassword: string;
+      newPassword: string;
+    }) =>
+      request<MessageResponseData | Record<string, never>>(
+        '/auth/change-password',
+        {
+          method: 'POST',
+          token: input.token,
+          body: {
+            currentPassword: input.currentPassword,
+            newPassword: input.newPassword,
+          },
+        },
+      ),
+
+    // Sends a 6-digit OTP to the email (if account exists). OTP expires in
+    // ~10 min. Response is intentionally generic to avoid account enumeration.
+    forgotPassword: (input: {email: string}) =>
+      request<ForgotPasswordResponseData>('/auth/forgot-password', {
+        method: 'POST',
+        body: input,
+      }),
+
+    // Verifies the OTP from forgot-password and sets a new password.
+    resetPassword: (input: {email: string; otp: string; password: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        '/auth/reset-password',
+        {
+          method: 'POST',
+          body: input,
+        },
+      ),
   },
 };
 

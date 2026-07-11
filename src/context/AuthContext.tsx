@@ -47,6 +47,10 @@ type AuthContextValue = {
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signOut: () => Promise<void>;
+  changePassword: (input: {
+    currentPassword: string;
+    newPassword: string;
+  }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -206,6 +210,16 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   }, [applySession, persistSession]);
 
   const signOut = useCallback(async () => {
+    // Best-effort server-side logout — bumps tokenVersion so any leaked
+    // tokens are invalidated. Ignore failures so the local session still
+    // clears (e.g. offline, expired token, etc.).
+    if (token) {
+      try {
+        await api.auth.logout({token});
+      } catch {
+        // ignore
+      }
+    }
     await persistSession(null, null, null);
     try {
       await signOutGoogle();
@@ -216,7 +230,33 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     setRefreshToken(null);
     setUser(null);
     setStatus('unauthenticated');
-  }, [persistSession]);
+  }, [persistSession, token]);
+
+  const changePassword = useCallback<AuthContextValue['changePassword']>(
+    async ({currentPassword, newPassword}) => {
+      if (!token) {
+        throw new ApiError('You are not signed in.', 401);
+      }
+      await api.auth.changePassword({
+        token,
+        currentPassword,
+        newPassword,
+      });
+      // Server bumped tokenVersion; existing tokens are now invalid on other
+      // devices. On this device we sign out so the user re-authenticates.
+      await persistSession(null, null, null);
+      try {
+        await signOutGoogle();
+      } catch {
+        // ignore
+      }
+      setToken(null);
+      setRefreshToken(null);
+      setUser(null);
+      setStatus('unauthenticated');
+    },
+    [persistSession, token],
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -230,6 +270,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       signInWithGoogle,
       signInWithApple,
       signOut,
+      changePassword,
     }),
     [
       status,
@@ -242,6 +283,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       signInWithGoogle,
       signInWithApple,
       signOut,
+      changePassword,
     ],
   );
 
