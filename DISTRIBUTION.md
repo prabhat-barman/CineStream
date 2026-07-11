@@ -36,6 +36,24 @@ the Firebase project (or that has "App Distribution Admin" access on it).
 
 ## Shipping a new beta build
 
+There are two paths — automated (recommended) and manual.
+
+### Path A — Automated via GitHub Actions (default)
+
+Every push to `main` triggers `.github/workflows/distribute-android.yml`
+which builds a release APK on GitHub-hosted Ubuntu and uploads it to
+Firebase App Distribution under the `testers` group. Release notes for
+each build are auto-generated from the latest commit message.
+
+Docs-only, iOS-only, and `.github/**` changes are skipped so you don't
+waste CI minutes on non-code updates. You can also trigger a build
+manually from the GitHub **Actions** tab (`Run workflow`).
+
+One-time CI setup (see the "Configuring GitHub Actions" section
+below) requires adding a `FIREBASE_SERVICE_ACCOUNT` repo secret.
+
+### Path B — Manual from your machine
+
 1. Update `RELEASE_NOTES.md` at the repo root — write what's new for
    testers. Anything in that file is emailed to testers verbatim.
 
@@ -55,6 +73,57 @@ the Firebase project (or that has "App Distribution Admin" access on it).
    - Open the invite email on their Android phone.
    - Install the **App Tester** app when prompted (one-time).
    - Tap the download button — the APK installs directly.
+
+---
+
+## Configuring GitHub Actions (one-time)
+
+The CI workflow authenticates to Firebase using a **service account
+JSON key**. Steps:
+
+### 1. Create the service account
+
+1. Open the Google Cloud Console for this Firebase project:
+   <https://console.cloud.google.com/iam-admin/serviceaccounts?project=cinestream-1464c>
+2. Click **Create service account**.
+   - Name: `github-actions-app-distribution`
+   - ID: leave auto-generated.
+   - Description: `Uploads Android betas to Firebase App Distribution from CI`.
+3. Click **Create and continue**.
+4. Under **Grant this service account access**, add these roles:
+   - `Firebase App Distribution Admin`
+   - `Firebase Viewer` *(needed for CLI project lookups)*
+5. Click **Done**.
+
+### 2. Generate a JSON key
+
+1. Click the newly created service account.
+2. Go to the **Keys** tab.
+3. **Add key → Create new key → JSON**. A JSON file downloads —
+   treat it like a password, never commit it.
+
+### 3. Add it as a GitHub secret
+
+1. Open the repo on GitHub:
+   <https://github.com/prabhat-barman/CineStream/settings/secrets/actions>
+2. **New repository secret**.
+   - Name: `FIREBASE_SERVICE_ACCOUNT`
+   - Value: paste the **entire JSON file contents**.
+3. **Add secret**.
+
+### 4. Verify the `testers` group exists in Firebase
+
+The workflow ships to the `testers` group. Create it once at
+<https://console.firebase.google.com/project/cinestream-1464c/appdistribution>
+under **Testers & Groups → Add group**, name it exactly `testers`,
+and add tester emails. Without this group the CI step fails with a
+404 at the "distributing to testers/groups" line.
+
+### 5. Trigger the first CI run
+
+Push any commit to `main` (or open the Actions tab and run the
+workflow manually). If the secret and group are set up correctly you
+should see the APK appear on the Firebase console within ~5 minutes.
 
 ---
 
