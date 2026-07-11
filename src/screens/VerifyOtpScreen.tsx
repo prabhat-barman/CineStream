@@ -31,11 +31,11 @@ export function VerifyOtpScreen({route, navigation}: Props) {
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
   // Hard-fail case: mail send failed on the backend AND no dev OTP fallback
-  // is available. The user can't proceed from this screen — surface it as
-  // an error so it's visually prominent, not an info hint.
+  // is available. The user can't verify from this screen without a new OTP —
+  // surface it as an error and let them retry via the Resend button.
   const [error, setError] = useState<string | null>(() => {
     if (emailSent === false && !devOtp) {
-      return "We couldn’t send the verification email right now. Please go back and try signing up again in a moment.";
+      return "We couldn’t send the verification email. Tap 'Resend' below or try again in a moment.";
     }
     return null;
   });
@@ -137,9 +137,29 @@ export function VerifyOtpScreen({route, navigation}: Props) {
     setError(null);
     setInfo(null);
     try {
-      // Backend doesn't yet expose a dedicated "resend OTP" route. Re-signup
-      // would fail on an existing account, so we simply prompt the user.
-      setInfo('If you didn’t receive the code, check spam or try again in a moment.');
+      const res = await api.auth.resendOtp({email});
+      // Reset the countdown for the freshly-issued OTP.
+      setSecondsLeft((res.otpExpiresInMinutes ?? expiresInMinutes) * 60);
+      // If the backend returned a dev OTP fallback (mail failed but the server
+      // still lets us complete via the response), prefill the boxes so the
+      // user can proceed. Otherwise just tell them to check their inbox.
+      if (res.otp) {
+        const seed = res.otp.replace(/\D/g, '').slice(0, OTP_LEN);
+        setDigits(
+          Array.from({length: OTP_LEN}, (_, i) => seed[i] ?? ''),
+        );
+        setInfo(
+          res.emailSent === false
+            ? `Email delivery is down — use this code to continue: ${res.otp}`
+            : `New code sent. Dev OTP prefilled: ${res.otp}`,
+        );
+      } else {
+        setInfo(
+          res.emailSent
+            ? 'New code sent. Check your inbox (and spam folder).'
+            : 'We couldn’t send the email. Please try again in a moment.',
+        );
+      }
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -152,7 +172,6 @@ export function VerifyOtpScreen({route, navigation}: Props) {
       setResending(false);
     }
   };
-  void api;
 
   const mm = Math.floor(secondsLeft / 60)
     .toString()
@@ -206,7 +225,9 @@ export function VerifyOtpScreen({route, navigation}: Props) {
       <View style={styles.bottomRow}>
         <Text style={styles.bottomText}>Didn’t get the code? </Text>
         <Pressable onPress={onResend} hitSlop={8} disabled={resending}>
-          <Text style={styles.bottomLink}>Resend</Text>
+          <Text style={styles.bottomLink}>
+            {resending ? 'Sending…' : 'Resend'}
+          </Text>
         </Pressable>
       </View>
 

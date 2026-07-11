@@ -47,7 +47,9 @@ export type SignUpResponseData = {
   emailSent: boolean;
   otpExpiresInMinutes: number;
   message: string;
-  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true)
+  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true). In production the
+  // backend returns 503 when mail delivery fails instead of a silent success,
+  // so a successful signup response always implies the user can proceed to OTP.
   otp?: string;
 };
 
@@ -63,7 +65,18 @@ export type ForgotPasswordResponseData = {
   email: string;
   emailSent: boolean;
   otpExpiresInMinutes: number;
-  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true)
+  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true). In production the
+  // backend hard-fails with 503 when mail delivery fails, so `emailSent: false`
+  // with no `otp` should never be observed by prod clients.
+  otp?: string;
+};
+
+export type ResendOtpResponseData = {
+  message: string;
+  email: string;
+  emailSent: boolean;
+  otpExpiresInMinutes: number;
+  // Present only in dev mode (EXPOSE_OTP_IN_RESPONSE=true). See note above.
   otp?: string;
 };
 
@@ -229,6 +242,16 @@ export const api = {
 
     verifyOtp: (input: {email: string; otp: string}) =>
       request<AuthTokenResponseData>('/auth/ott/verify-otp', {
+        method: 'POST',
+        body: input,
+      }),
+
+    // Regenerates the verification OTP for a pending signup and re-sends the
+    // email. Useful when SMTP was down at signup time or the user didn't
+    // receive the first mail. The response mirrors signup (dev builds may
+    // include `otp` as a fallback).
+    resendOtp: (input: {email: string}) =>
+      request<ResendOtpResponseData>('/auth/ott/resend-otp', {
         method: 'POST',
         body: input,
       }),
