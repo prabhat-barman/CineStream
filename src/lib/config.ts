@@ -18,8 +18,7 @@ export const API_URL: string = envOverride ?? DEFAULT_API_URL;
 // ------------------------------
 export const GOOGLE_WEB_CLIENT_ID: string =
   (globalThis as any).process?.env?.GOOGLE_WEB_CLIENT_ID ??
-  '676063139932-jrg4e0hig5n42japt6hjthpddnp52v8u.apps.googleusercontent.com';
+  '55460051377-uf8f5s2n6mvk0tv2ln5b87urfcm77fsg.apps.googleusercontent.com';
 
 export const GOOGLE_IOS_CLIENT_ID: string | undefined =
-  (globalThis as any).process?.env?.GOOGLE_IOS_CLIENT_ID ??
-  '676063139932-f89fb6jheqtp1u9mi8fbv4i093po35qv.apps.googleusercontent.com';
+  (globalThis as any).process?.env?.GOOGLE_IOS_CLIENT_ID ?? undefined;
