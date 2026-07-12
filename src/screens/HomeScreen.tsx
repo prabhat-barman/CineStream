@@ -1,5 +1,6 @@
-import React, {useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -13,13 +14,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {
-  audioStories,
-  continueWatching,
-  featuredMovie,
-  podcasts,
-  rows,
-} from '../data/movies';
+import {audioStories, podcasts} from '../data/placeholders';
 import {colors, radius, spacing} from '../theme/colors';
 import {
   BellIcon,
@@ -32,6 +27,11 @@ import {
 } from '../components/icons';
 import {MovieRow} from '../components/MovieRow';
 import {SectionHeader} from '../components/SectionHeader';
+import {api} from '../lib/api';
+import {webseriesToContent} from '../lib/adapters';
+import {useApi} from '../lib/useApi';
+import {useAuth} from '../context/AuthContext';
+import type {ContentItem} from '../types/movie';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
@@ -43,8 +43,63 @@ type Props = CompositeScreenProps<
 const HERO_TABS = ['Movies', 'TV Shows', 'Categories'] as const;
 type HeroTab = (typeof HERO_TABS)[number];
 
+type HomePayload = {
+  latest: ContentItem[];
+  action: ContentItem[];
+  drama: ContentItem[];
+};
+
 export function HomeScreen({navigation}: Props) {
   const [activeTab, setActiveTab] = useState<HeroTab>('Movies');
+  const {token} = useAuth();
+
+  const fetchHome = useCallback(
+    async (signal: AbortSignal): Promise<HomePayload> => {
+      if (!token) {
+        return {latest: [], action: [], drama: []};
+      }
+      // Parallel fetches — the retry / refresh pipeline in api.ts handles
+      // transient failures. Individual genre calls that fail simply return
+      // an empty section rather than tanking the whole screen.
+      const [latestRes, actionRes, dramaRes] = await Promise.allSettled([
+        api.webseries.list({token, status: 'PUBLISHED', limit: 20, signal}),
+        api.webseries.list({
+          token,
+          status: 'PUBLISHED',
+          genre: 'action',
+          limit: 15,
+          signal,
+        }),
+        api.webseries.list({
+          token,
+          status: 'PUBLISHED',
+          genre: 'drama',
+          limit: 15,
+          signal,
+        }),
+      ]);
+      const unwrap = (
+        r: PromiseSettledResult<Awaited<ReturnType<typeof api.webseries.list>>>,
+      ): ContentItem[] =>
+        r.status === 'fulfilled' ? r.value.data.map(webseriesToContent) : [];
+      return {
+        latest: unwrap(latestRes),
+        action: unwrap(actionRes),
+        drama: unwrap(dramaRes),
+      };
+    },
+    [token],
+  );
+
+  const {data, loading, error, reload} = useApi(fetchHome, [token]);
+
+  const featured = data?.latest[0];
+  const trending = useMemo(() => data?.latest.slice(0, 10) ?? [], [data]);
+  const newReleases = useMemo(
+    () => data?.latest.filter(w => w.isNew) ?? [],
+    [data],
+  );
+
   const openMovie = (id: string) =>
     navigation.navigate('MovieDetails', {id});
   const playMovie = (id: string) => navigation.navigate('Player', {id});
@@ -54,87 +109,252 @@ export function HomeScreen({navigation}: Props) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}>
-        <View style={styles.hero}>
-          <Image
-            source={{uri: featuredMovie.backdrop}}
-            style={styles.heroImg}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={[
-              'rgba(10,10,10,0.35)',
-              'rgba(10,10,10,0)',
-              'rgba(10,10,10,0.9)',
-              colors.background,
-            ]}
-            locations={[0, 0.35, 0.85, 1]}
-            style={StyleSheet.absoluteFill}
-          />
+        <HeroSection
+          featured={featured}
+          loading={loading}
+          error={error}
+          onReload={reload}
+          activeTab={activeTab}
+          onChangeTab={setActiveTab}
+          onPlay={playMovie}
+          onOpen={openMovie}
+          onOpenNotifications={() => navigation.navigate('Notifications')}
+        />
 
-          <SafeAreaView edges={['top']} style={styles.heroTopBar}>
-            <View style={styles.heroHeader}>
-              <Text style={styles.brand}>CINESTREAM</Text>
-              <View style={styles.headerActions}>
-                <Pressable hitSlop={8}>
-                  <CastIcon />
-                </Pressable>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => navigation.navigate('Notifications')}>
-                  <BellIcon />
-                  <View style={styles.bellDot} />
-                </Pressable>
-              </View>
-            </View>
+        {trending.length ? (
+          <MovieRow
+            title="Trending Now"
+            movies={trending}
+            onPressMovie={m => openMovie(m.id)}
+          />
+        ) : null}
 
-            <View style={styles.chipsRow}>
-              {HERO_TABS.map(c => {
-                const active = c === activeTab;
-                return (
-                  <Pressable
-                    key={c}
-                    style={styles.chip}
-                    hitSlop={4}
-                    onPress={() => setActiveTab(c)}>
-                    <Text
-                      style={[styles.chipText, active && styles.chipTextActive]}>
-                      {c}
+        {newReleases.length ? (
+          <MovieRow
+            title="New Releases"
+            movies={newReleases}
+            onPressMovie={m => openMovie(m.id)}
+          />
+        ) : null}
+
+        {data?.action.length ? (
+          <MovieRow
+            title="Action & Adventure"
+            movies={data.action}
+            onPressMovie={m => openMovie(m.id)}
+          />
+        ) : null}
+
+        {data?.drama.length ? (
+          <MovieRow
+            title="Drama"
+            movies={data.drama}
+            onPressMovie={m => openMovie(m.id)}
+          />
+        ) : null}
+
+        {podcasts.length ? (
+          <>
+            <SectionHeader title="Featured Podcasts" action="See All" />
+            <FlatList
+              horizontal
+              data={podcasts}
+              keyExtractor={p => p.id}
+              contentContainerStyle={styles.hlist}
+              ItemSeparatorComponent={() => (
+                <View style={{width: spacing.sm + 2}} />
+              )}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({item}) => (
+                <Pressable style={styles.podcastCard}>
+                  <Image
+                    source={{uri: item.cover}}
+                    style={styles.podcastImg}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.podcastBody}>
+                    <View style={styles.podcastRow}>
+                      <MicIcon size={12} color={colors.textAccent} />
+                      <Text style={styles.podcastCat}>{item.category}</Text>
+                    </View>
+                    <Text style={styles.podcastTitle} numberOfLines={1}>
+                      {item.title}
                     </Text>
-                    {active ? <View style={styles.chipUnderline} /> : null}
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View style={styles.chipsDivider} />
-          </SafeAreaView>
+                    <Text style={styles.podcastAuthor} numberOfLines={1}>
+                      {item.author}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </>
+        ) : null}
 
-          <View style={styles.heroBody}>
-            {featuredMovie.isNew ? (
+        {audioStories.length ? (
+          <View style={styles.audioSection}>
+            <SectionHeader title="Audio Stories" action="Explore" />
+            {audioStories.map(a => (
+              <Pressable key={a.id} style={styles.audioCard}>
+                <Image source={{uri: a.cover}} style={styles.audioImg} />
+                <View style={styles.audioBody}>
+                  <View style={styles.audioTop}>
+                    <HeadphonesIcon size={14} color={colors.textAccent} />
+                    <Text style={styles.audioBadge}>
+                      {a.durationMin} MIN
+                    </Text>
+                  </View>
+                  <Text style={styles.audioTitle}>{a.title}</Text>
+                  <Text style={styles.audioDesc} numberOfLines={2}>
+                    {a.description}
+                  </Text>
+                </View>
+                <Pressable style={styles.audioPlay} hitSlop={8}>
+                  <PlayIcon size={16} color={colors.background} />
+                </Pressable>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+type HeroProps = {
+  featured?: ContentItem;
+  loading: boolean;
+  error: string | null;
+  onReload: () => void;
+  activeTab: HeroTab;
+  onChangeTab: (t: HeroTab) => void;
+  onPlay: (id: string) => void;
+  onOpen: (id: string) => void;
+  onOpenNotifications: () => void;
+};
+
+function HeroSection({
+  featured,
+  loading,
+  error,
+  onReload,
+  activeTab,
+  onChangeTab,
+  onPlay,
+  onOpen,
+  onOpenNotifications,
+}: HeroProps) {
+  return (
+    <View style={styles.hero}>
+      {featured ? (
+        <Image
+          source={{uri: featured.backdrop}}
+          style={styles.heroImg}
+          resizeMode="cover"
+        />
+      ) : (
+        <View style={[styles.heroImg, styles.heroSkeleton]} />
+      )}
+      <LinearGradient
+        colors={[
+          'rgba(10,10,10,0.35)',
+          'rgba(10,10,10,0)',
+          'rgba(10,10,10,0.9)',
+          colors.background,
+        ]}
+        locations={[0, 0.35, 0.85, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      <SafeAreaView edges={['top']} style={styles.heroTopBar}>
+        <View style={styles.heroHeader}>
+          <Text style={styles.brand}>CINESTREAM</Text>
+          <View style={styles.headerActions}>
+            <Pressable hitSlop={8}>
+              <CastIcon />
+            </Pressable>
+            <Pressable hitSlop={8} onPress={onOpenNotifications}>
+              <BellIcon />
+              <View style={styles.bellDot} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.chipsRow}>
+          {HERO_TABS.map(c => {
+            const active = c === activeTab;
+            return (
+              <Pressable
+                key={c}
+                style={styles.chip}
+                hitSlop={4}
+                onPress={() => onChangeTab(c)}>
+                <Text
+                  style={[styles.chipText, active && styles.chipTextActive]}>
+                  {c}
+                </Text>
+                {active ? <View style={styles.chipUnderline} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+        <View style={styles.chipsDivider} />
+      </SafeAreaView>
+
+      <View style={styles.heroBody}>
+        {loading && !featured ? (
+          <View style={styles.heroLoading}>
+            <ActivityIndicator color={colors.brand} />
+          </View>
+        ) : error && !featured ? (
+          <View style={styles.heroError}>
+            <Text style={styles.errorText} numberOfLines={2}>
+              {error}
+            </Text>
+            <Pressable onPress={onReload} style={styles.retryBtn}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : featured ? (
+          <>
+            {featured.isNew ? (
               <View style={styles.newBadge}>
                 <Text style={styles.newBadgeText}>NEW RELEASE</Text>
               </View>
             ) : null}
-            <Text style={styles.heroTitle}>{featuredMovie.title}</Text>
+            <Text style={styles.heroTitle}>{featured.title}</Text>
             <View style={styles.metaRow}>
               <StarIcon />
               <Text style={styles.metaText}>
-                {featuredMovie.rating.toFixed(1)}
+                {featured.year ?? '—'}
               </Text>
-              <View style={styles.dot} />
-              <Text style={styles.metaText}>{featuredMovie.year}</Text>
-              <View style={styles.dot} />
-              <Text style={styles.metaText}>Sci-Fi</Text>
-              <View style={styles.dot} />
-              <Text style={styles.metaText}>2h 34m</Text>
+              {featured.genres[0] ? (
+                <>
+                  <View style={styles.dot} />
+                  <Text style={styles.metaText}>{featured.genres[0]}</Text>
+                </>
+              ) : null}
+              {featured.totalEpisodes ? (
+                <>
+                  <View style={styles.dot} />
+                  <Text style={styles.metaText}>
+                    {featured.totalEpisodes} Episodes
+                  </Text>
+                </>
+              ) : null}
+              {featured.maturity ? (
+                <>
+                  <View style={styles.dot} />
+                  <Text style={styles.metaText}>{featured.maturity}</Text>
+                </>
+              ) : null}
             </View>
             <Text style={styles.heroTagline} numberOfLines={2}>
-              In a galaxy consumed by shadow, one pilot must find the light that
-              has never meant to be.
+              {featured.synopsis}
             </Text>
 
             <View style={styles.heroActions}>
               <Pressable
-                onPress={() => playMovie(featuredMovie.id)}
+                onPress={() => onPlay(featured.id)}
                 style={({pressed}) => [
                   styles.playBtn,
                   pressed && styles.pressed,
@@ -143,127 +363,18 @@ export function HomeScreen({navigation}: Props) {
                 <Text style={styles.playText}>Play</Text>
               </Pressable>
               <Pressable
-                onPress={() => openMovie(featuredMovie.id)}
+                onPress={() => onOpen(featured.id)}
                 style={({pressed}) => [
                   styles.listBtn,
                   pressed && styles.pressed,
                 ]}>
                 <PlusIcon size={16} />
-                <Text style={styles.listText}>My List</Text>
+                <Text style={styles.listText}>Details</Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-
-        <View style={styles.continueWrap}>
-          <SectionHeader title="Continue Watching" action="See All" />
-          <FlatList
-            horizontal
-            data={continueWatching}
-            keyExtractor={c => c.id}
-            contentContainerStyle={styles.hlist}
-            ItemSeparatorComponent={() => (
-              <View style={{width: spacing.sm + 2}} />
-            )}
-            showsHorizontalScrollIndicator={false}
-            renderItem={({item}) => (
-              <Pressable
-                onPress={() => playMovie(item.movie.id)}
-                style={styles.continueCard}>
-                <Image
-                  source={{uri: item.movie.backdrop}}
-                  style={styles.continueImg}
-                  resizeMode="cover"
-                />
-                <LinearGradient
-                  colors={['transparent', 'rgba(0,0,0,0.85)']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={styles.continuePlay}>
-                  <PlayIcon size={16} color={colors.background} />
-                </View>
-                <View style={styles.continueBody}>
-                  <Text style={styles.continueTitle} numberOfLines={1}>
-                    {item.movie.title}
-                  </Text>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        {width: `${item.progress * 100}%`},
-                      ]}
-                    />
-                  </View>
-                </View>
-              </Pressable>
-            )}
-          />
-        </View>
-
-        {rows.map(row => (
-          <MovieRow
-            key={row.id}
-            title={row.title}
-            movies={row.movies}
-            onPressMovie={m => openMovie(m.id)}
-          />
-        ))}
-
-        <SectionHeader title="Featured Podcasts" action="See All" />
-        <FlatList
-          horizontal
-          data={podcasts}
-          keyExtractor={p => p.id}
-          contentContainerStyle={styles.hlist}
-          ItemSeparatorComponent={() => <View style={{width: spacing.sm + 2}} />}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({item}) => (
-            <Pressable style={styles.podcastCard}>
-              <Image
-                source={{uri: item.cover}}
-                style={styles.podcastImg}
-                resizeMode="cover"
-              />
-              <View style={styles.podcastBody}>
-                <View style={styles.podcastRow}>
-                  <MicIcon size={12} color={colors.textAccent} />
-                  <Text style={styles.podcastCat}>{item.category}</Text>
-                </View>
-                <Text style={styles.podcastTitle} numberOfLines={1}>
-                  {item.title}
-                </Text>
-                <Text style={styles.podcastAuthor} numberOfLines={1}>
-                  {item.author}
-                </Text>
-              </View>
-            </Pressable>
-          )}
-        />
-
-        <View style={styles.audioSection}>
-          <SectionHeader title="Audio Stories" action="Explore" />
-          {audioStories.map(a => (
-            <Pressable key={a.id} style={styles.audioCard}>
-              <Image source={{uri: a.cover}} style={styles.audioImg} />
-              <View style={styles.audioBody}>
-                <View style={styles.audioTop}>
-                  <HeadphonesIcon size={14} color={colors.textAccent} />
-                  <Text style={styles.audioBadge}>
-                    {a.durationMin} MIN
-                  </Text>
-                </View>
-                <Text style={styles.audioTitle}>{a.title}</Text>
-                <Text style={styles.audioDesc} numberOfLines={2}>
-                  {a.description}
-                </Text>
-              </View>
-              <Pressable style={styles.audioPlay} hitSlop={8}>
-                <PlayIcon size={16} color={colors.background} />
-              </Pressable>
-            </Pressable>
-          ))}
-        </View>
-      </ScrollView>
+          </>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -284,6 +395,36 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '100%',
     height: '100%',
+  },
+  heroSkeleton: {
+    backgroundColor: colors.surface,
+  },
+  heroLoading: {
+    paddingVertical: spacing.md,
+    alignItems: 'flex-start',
+  },
+  heroError: {
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  errorText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    opacity: 0.85,
+  },
+  retryBtn: {
+    paddingHorizontal: spacing.md,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {
+    color: colors.brandText,
+    fontSize: 13,
+    fontWeight: '700',
   },
   heroTopBar: {
     position: 'absolute',
@@ -385,6 +526,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginBottom: spacing.sm,
+    flexWrap: 'wrap',
   },
   metaText: {
     color: colors.textMuted,
@@ -442,58 +584,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   pressed: {opacity: 0.85, transform: [{scale: 0.98}]},
-  continueWrap: {marginTop: spacing.md, marginBottom: spacing.md},
   hlist: {paddingHorizontal: spacing.md},
-  continueCard: {
-    width: 180,
-    height: 108,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-  },
-  continueImg: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-  },
-  continuePlay: {
-    position: 'absolute',
-    right: 8,
-    top: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#fff7f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  continueBody: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    bottom: 10,
-  },
-  continueTitle: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  progressBar: {
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 3,
-    backgroundColor: colors.brand,
-    borderRadius: 2,
-  },
   podcastCard: {
     width: 160,
     borderRadius: radius.md,

@@ -1,5 +1,6 @@
-import React, {useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Image,
   Pressable,
@@ -14,14 +15,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {
-  becauseYouWatched,
-  discoverFeatured,
-  forYou,
-  recentSearches,
-  searchCategories,
-  trending,
-} from '../data/movies';
+import {recentSearches, searchCategories} from '../data/placeholders';
 import {colors, radius, spacing} from '../theme/colors';
 import {
   ChevronRightIcon,
@@ -33,6 +27,11 @@ import {
 } from '../components/icons';
 import {SectionHeader} from '../components/SectionHeader';
 import {MovieCard} from '../components/MovieCard';
+import {api} from '../lib/api';
+import {webseriesToContent} from '../lib/adapters';
+import {useApi} from '../lib/useApi';
+import {useAuth} from '../context/AuthContext';
+import type {ContentItem} from '../types/movie';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
@@ -44,6 +43,40 @@ type Props = CompositeScreenProps<
 export function DiscoverScreen({navigation}: Props) {
   const [q, setQ] = useState('');
   const [activeCategory, setActiveCategory] = useState(searchCategories[0]);
+  const {token} = useAuth();
+
+  const genre = useMemo(() => {
+    if (!activeCategory || activeCategory === 'All Genres') {
+      return undefined;
+    }
+    return activeCategory.toLowerCase();
+  }, [activeCategory]);
+
+  const fetchDiscover = useCallback(
+    (signal: AbortSignal) => {
+      if (!token) {
+        return null;
+      }
+      return api.webseries
+        .list({
+          token,
+          status: 'PUBLISHED',
+          genre,
+          limit: 30,
+          signal,
+        })
+        .then(res => res.data.map(webseriesToContent));
+    },
+    [token, genre],
+  );
+
+  const {data, loading, error, reload} = useApi(fetchDiscover, [token, genre]);
+
+  const items: ContentItem[] = data ?? [];
+  const featured = items[0];
+  const trending = items.slice(0, 8);
+  const forYou = items.slice(0, 8);
+  const because = items.slice(0, 5);
 
   const openMovie = (id: string) =>
     navigation.navigate('MovieDetails', {id});
@@ -62,6 +95,12 @@ export function DiscoverScreen({navigation}: Props) {
             placeholder="Search movies, people..."
             placeholderTextColor={colors.placeholder}
             style={styles.input}
+            returnKeyType="search"
+            onSubmitEditing={() => {
+              if (q.trim()) {
+                navigation.navigate('Search');
+              }
+            }}
           />
         </View>
       </SafeAreaView>
@@ -69,21 +108,25 @@ export function DiscoverScreen({navigation}: Props) {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}>
-        <SectionHeader title="Recent Searches" compact />
-        <View style={styles.recentWrap}>
-          {recentSearches.map(s => (
-            <View key={s} style={styles.recentChip}>
-              <ClockIcon size={14} color={colors.textMuted} />
-              <Text style={styles.recentText}>{s}</Text>
-              <Pressable hitSlop={6}>
-                <CloseIcon size={14} color={colors.textMuted} />
+        {recentSearches.length ? (
+          <>
+            <SectionHeader title="Recent Searches" compact />
+            <View style={styles.recentWrap}>
+              {recentSearches.map(s => (
+                <View key={s} style={styles.recentChip}>
+                  <ClockIcon size={14} color={colors.textMuted} />
+                  <Text style={styles.recentText}>{s}</Text>
+                  <Pressable hitSlop={6}>
+                    <CloseIcon size={14} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              ))}
+              <Pressable style={styles.recentChipMore}>
+                <Text style={styles.recentMoreText}>View All</Text>
               </Pressable>
             </View>
-          ))}
-          <Pressable style={styles.recentChipMore}>
-            <Text style={styles.recentMoreText}>View All</Text>
-          </Pressable>
-        </View>
+          </>
+        ) : null}
 
         <View style={styles.categoriesRow}>
           {searchCategories.map(c => {
@@ -102,119 +145,145 @@ export function DiscoverScreen({navigation}: Props) {
           })}
         </View>
 
-        <SectionHeader title="Trending Now" action="See All" compact />
-        <FlatList
-          horizontal
-          data={trending}
-          keyExtractor={m => m.id}
-          contentContainerStyle={styles.hlist}
-          ItemSeparatorComponent={() => <View style={{width: spacing.sm + 2}} />}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({item}) => (
-            <MovieCard
-              movie={item}
-              width={130}
-              onPress={() => openMovie(item.id)}
-            />
-          )}
-        />
-
-        <SectionHeader title="For You" action="Explore" compact />
-        <Pressable
-          onPress={() => openMovie(discoverFeatured.id)}
-          style={styles.featured}>
-          <Image
-            source={{uri: discoverFeatured.backdrop}}
-            style={styles.featuredImg}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={['rgba(10,10,10,0)', 'rgba(10,10,10,0.85)']}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.featuredBadge}>
-            <Text style={styles.featuredBadgeText}>NEW RELEASE</Text>
+        {error && !items.length ? (
+          <View style={styles.errorBlock}>
+            <Text style={styles.errorText}>{error}</Text>
+            <Pressable onPress={reload} style={styles.retryBtn}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
           </View>
-          <View style={styles.featuredBody}>
-            <Text style={styles.featuredTitle}>{discoverFeatured.title}</Text>
-            <View style={styles.featuredMeta}>
-              <StarIcon size={12} />
-              <Text style={styles.featuredMetaText}>
-                {discoverFeatured.rating.toFixed(1)}
-              </Text>
-              <View style={styles.dot} />
-              <Text style={styles.featuredMetaText}>
-                {discoverFeatured.year}
-              </Text>
-              <View style={styles.dot} />
-              <Text style={styles.featuredMetaText}>
-                {discoverFeatured.genres[0]}
-              </Text>
-            </View>
-            <Text numberOfLines={2} style={styles.featuredSynopsis}>
-              {discoverFeatured.synopsis}
-            </Text>
-            <View style={styles.featuredActions}>
-              <View style={styles.playPill}>
-                <PlayIcon size={14} color={colors.background} />
-                <Text style={styles.playPillText}>Play</Text>
-              </View>
-              <View style={styles.miniList}>
-                <Text style={styles.miniListText}>+ My List</Text>
-              </View>
-            </View>
+        ) : null}
+
+        {loading && !items.length ? (
+          <View style={styles.loadingBlock}>
+            <ActivityIndicator color={colors.brand} />
           </View>
-        </Pressable>
+        ) : null}
 
-        <FlatList
-          horizontal
-          data={forYou}
-          keyExtractor={m => m.id}
-          contentContainerStyle={[styles.hlist, {marginTop: spacing.md}]}
-          ItemSeparatorComponent={() => <View style={{width: spacing.sm + 2}} />}
-          showsHorizontalScrollIndicator={false}
-          renderItem={({item}) => (
-            <MovieCard
-              movie={item}
-              width={112}
-              onPress={() => openMovie(item.id)}
-            />
-          )}
-        />
-
-        <SectionHeader title="Because you watched Interstellar" compact />
-        <View style={styles.becauseWrap}>
-          {becauseYouWatched.map(m => {
-            const runtime = `${Math.floor(m.runtimeMin / 60)}h ${
-              m.runtimeMin % 60
-            }m`;
-            return (
-              <Pressable
-                key={m.id}
-                onPress={() => openMovie(m.id)}
-                style={styles.becauseRow}>
-                <Image
-                  source={{uri: m.backdrop}}
-                  style={styles.becauseImg}
-                  resizeMode="cover"
+        {trending.length ? (
+          <>
+            <SectionHeader title="Trending Now" action="See All" compact />
+            <FlatList
+              horizontal
+              data={trending}
+              keyExtractor={m => m.id}
+              contentContainerStyle={styles.hlist}
+              ItemSeparatorComponent={() => (
+                <View style={{width: spacing.sm + 2}} />
+              )}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({item}) => (
+                <MovieCard
+                  movie={item}
+                  width={130}
+                  onPress={() => openMovie(item.id)}
                 />
-                <View style={styles.becauseBody}>
-                  <Text style={styles.becauseTitle}>{m.title}</Text>
-                  <Text style={styles.becauseMeta}>
-                    {m.year} · {m.genres[0]} · {runtime}
+              )}
+            />
+          </>
+        ) : null}
+
+        {featured ? (
+          <>
+            <SectionHeader title="For You" action="Explore" compact />
+            <Pressable
+              onPress={() => openMovie(featured.id)}
+              style={styles.featured}>
+              <Image
+                source={{uri: featured.backdrop}}
+                style={styles.featuredImg}
+                resizeMode="cover"
+              />
+              <LinearGradient
+                colors={['rgba(10,10,10,0)', 'rgba(10,10,10,0.85)']}
+                style={StyleSheet.absoluteFill}
+              />
+              {featured.isNew ? (
+                <View style={styles.featuredBadge}>
+                  <Text style={styles.featuredBadgeText}>NEW RELEASE</Text>
+                </View>
+              ) : null}
+              <View style={styles.featuredBody}>
+                <Text style={styles.featuredTitle}>{featured.title}</Text>
+                <View style={styles.featuredMeta}>
+                  <StarIcon size={12} />
+                  <Text style={styles.featuredMetaText}>
+                    {featured.year ?? '—'}
                   </Text>
-                  <View style={styles.becauseRating}>
-                    <StarIcon size={12} />
-                    <Text style={styles.becauseRatingText}>
-                      {m.rating.toFixed(1)}
-                    </Text>
+                  {featured.genres[0] ? (
+                    <>
+                      <View style={styles.dot} />
+                      <Text style={styles.featuredMetaText}>
+                        {featured.genres[0]}
+                      </Text>
+                    </>
+                  ) : null}
+                </View>
+                <Text numberOfLines={2} style={styles.featuredSynopsis}>
+                  {featured.synopsis}
+                </Text>
+                <View style={styles.featuredActions}>
+                  <View style={styles.playPill}>
+                    <PlayIcon size={14} color={colors.background} />
+                    <Text style={styles.playPillText}>Play</Text>
+                  </View>
+                  <View style={styles.miniList}>
+                    <Text style={styles.miniListText}>Details</Text>
                   </View>
                 </View>
-                <ChevronRightIcon size={18} color={colors.textMuted} />
-              </Pressable>
-            );
-          })}
-        </View>
+              </View>
+            </Pressable>
+          </>
+        ) : null}
+
+        {forYou.length ? (
+          <FlatList
+            horizontal
+            data={forYou}
+            keyExtractor={m => m.id}
+            contentContainerStyle={[styles.hlist, {marginTop: spacing.md}]}
+            ItemSeparatorComponent={() => (
+              <View style={{width: spacing.sm + 2}} />
+            )}
+            showsHorizontalScrollIndicator={false}
+            renderItem={({item}) => (
+              <MovieCard
+                movie={item}
+                width={112}
+                onPress={() => openMovie(item.id)}
+              />
+            )}
+          />
+        ) : null}
+
+        {because.length ? (
+          <>
+            <SectionHeader title="Recommended for you" compact />
+            <View style={styles.becauseWrap}>
+              {because.map(m => (
+                <Pressable
+                  key={m.id}
+                  onPress={() => openMovie(m.id)}
+                  style={styles.becauseRow}>
+                  <Image
+                    source={{uri: m.backdrop}}
+                    style={styles.becauseImg}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.becauseBody}>
+                    <Text style={styles.becauseTitle}>{m.title}</Text>
+                    <Text style={styles.becauseMeta}>
+                      {[m.year, m.genres[0], m.maturity]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  </View>
+                  <ChevronRightIcon size={18} color={colors.textMuted} />
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -287,6 +356,7 @@ const styles = StyleSheet.create({
   },
   categoriesRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm + 2,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.lg,
@@ -312,6 +382,39 @@ const styles = StyleSheet.create({
   },
   categoryTextOn: {
     color: colors.brandText,
+  },
+  errorBlock: {
+    marginHorizontal: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: colors.glassBg,
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  loadingBlock: {
+    paddingVertical: spacing.lg,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    opacity: 0.9,
+  },
+  retryBtn: {
+    paddingHorizontal: spacing.md,
+    height: 32,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {
+    color: colors.brandText,
+    fontSize: 12,
+    fontWeight: '700',
   },
   hlist: {paddingHorizontal: spacing.md},
   featured: {
@@ -364,6 +467,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginBottom: 6,
+    flexWrap: 'wrap',
   },
   featuredMetaText: {color: colors.textMuted, fontSize: 12},
   dot: {
@@ -443,16 +547,5 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     marginTop: 2,
-  },
-  becauseRating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-  becauseRatingText: {
-    color: colors.textPrimary,
-    fontSize: 11,
-    fontWeight: '600',
   },
 });

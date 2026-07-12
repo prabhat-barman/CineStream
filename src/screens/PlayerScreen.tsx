@@ -1,5 +1,6 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   Image,
@@ -12,8 +13,7 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {colors, spacing} from '../theme/colors';
-import {getMovie} from '../data/movies';
+import {colors, radius, spacing} from '../theme/colors';
 import {
   CastIcon,
   CloseIcon,
@@ -24,9 +24,19 @@ import {
   RewindIcon,
   SubtitlesIcon,
 } from '../components/icons';
+import {api, type Episode as ApiEpisode, type Webseries} from '../lib/api';
+import {useApi} from '../lib/useApi';
+import {useAuth} from '../context/AuthContext';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Player'>;
+
+type PlayerBundle = {
+  series: Webseries;
+  firstEpisode: ApiEpisode | null;
+};
+
+const DEFAULT_TOTAL_SEC = 90 * 60;
 
 const formatTime = (s: number) => {
   const m = Math.floor(s / 60);
@@ -35,10 +45,42 @@ const formatTime = (s: number) => {
 };
 
 export function PlayerScreen({navigation, route}: Props) {
-  const movie = getMovie(route.params.id);
-  const totalSec = (movie?.runtimeMin ?? 120) * 60;
-  const startSec = totalSec * 0.174;
-  const [current, setCurrent] = useState(startSec);
+  const {token} = useAuth();
+  const id = route.params.id;
+
+  const fetchBundle = useCallback(
+    async (signal: AbortSignal): Promise<PlayerBundle> => {
+      if (!token) {
+        throw new Error('Not signed in');
+      }
+      const series = await api.webseries.get({token, id, signal});
+      let firstEpisode: ApiEpisode | null = null;
+      try {
+        const eps = await api.episodes.list({
+          token,
+          webSeriesId: id,
+          limit: 1,
+          signal,
+        });
+        firstEpisode =
+          eps.data.find(e => e.status === 'COMPLETED') ?? eps.data[0] ?? null;
+      } catch {
+        // Episodes are optional — playback still works from series metadata
+        // when no episodes exist yet (e.g. a movie webseries).
+      }
+      return {series, firstEpisode};
+    },
+    [token, id],
+  );
+
+  const {data, loading, error, reload} = useApi(fetchBundle, [token, id]);
+
+  const totalSec =
+    (data?.firstEpisode?.duration && data.firstEpisode.duration > 0
+      ? data.firstEpisode.duration
+      : null) ?? DEFAULT_TOTAL_SEC;
+
+  const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [showControls, setShowControls] = useState(true);
   const fade = useRef(new Animated.Value(1)).current;
@@ -47,10 +89,10 @@ export function PlayerScreen({navigation, route}: Props) {
     if (!playing) {
       return;
     }
-    const id = setInterval(() => {
+    const interval = setInterval(() => {
       setCurrent(c => Math.min(c + 1, totalSec));
     }, 1000);
-    return () => clearInterval(id);
+    return () => clearInterval(interval);
   }, [playing, totalSec]);
 
   useEffect(() => {
@@ -70,12 +112,45 @@ export function PlayerScreen({navigation, route}: Props) {
     return () => clearTimeout(t);
   }, [showControls, current]);
 
-  if (!movie) {
+  if (loading && !data) {
+    return (
+      <View style={styles.stateRoot}>
+        <StatusBar hidden />
+        <ActivityIndicator color={colors.brand} />
+      </View>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <View style={styles.stateRoot}>
+        <StatusBar hidden />
+        <Text style={styles.stateText}>{error}</Text>
+        <Pressable onPress={reload} style={styles.retryBtn}>
+          <Text style={styles.retryText}>Retry</Text>
+        </Pressable>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backLink}>
+          <Text style={styles.backText}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!data) {
     return null;
   }
 
+  const {series, firstEpisode} = data;
   const remaining = Math.max(totalSec - current, 0);
-  const progress = current / totalSec;
+  const progress = totalSec > 0 ? current / totalSec : 0;
+  const backdrop = firstEpisode?.thumbnail || series.coverImage || series.thumbnail || '';
+  const subLine = firstEpisode
+    ? `Episode ${firstEpisode.episodeNumber}${firstEpisode.title ? ` · ${firstEpisode.title}` : ''}`
+    : series.language
+      ? series.language.toUpperCase()
+      : '';
+
+  const canPlay = firstEpisode?.status === 'COMPLETED' && !!firstEpisode.videoUrl;
 
   return (
     <View style={styles.root}>
@@ -84,11 +159,13 @@ export function PlayerScreen({navigation, route}: Props) {
       <Pressable
         onPress={() => setShowControls(v => !v)}
         style={StyleSheet.absoluteFill}>
-        <Image
-          source={{uri: movie.backdrop}}
-          style={styles.backdrop}
-          resizeMode="cover"
-        />
+        {backdrop ? (
+          <Image
+            source={{uri: backdrop}}
+            style={styles.backdrop}
+            resizeMode="cover"
+          />
+        ) : null}
         <View style={styles.dim} />
       </Pressable>
 
@@ -110,11 +187,13 @@ export function PlayerScreen({navigation, route}: Props) {
           </Pressable>
           <View style={styles.topTitleWrap}>
             <Text style={styles.topTitle} numberOfLines={1}>
-              The Last Nebula
+              {series.title}
             </Text>
-            <Text style={styles.topSub}>
-              Season 1 · Episode 4 · "The Fall"
-            </Text>
+            {subLine ? (
+              <Text style={styles.topSub} numberOfLines={1}>
+                {subLine}
+              </Text>
+            ) : null}
           </View>
           <Pressable style={styles.iconBtn} hitSlop={8}>
             <CastIcon size={22} />
@@ -132,7 +211,8 @@ export function PlayerScreen({navigation, route}: Props) {
           <Pressable
             onPress={() => setPlaying(p => !p)}
             style={styles.playBtn}
-            hitSlop={12}>
+            hitSlop={12}
+            disabled={!canPlay}>
             {playing ? (
               <PauseIcon size={30} color={colors.background} />
             ) : (
@@ -147,6 +227,16 @@ export function PlayerScreen({navigation, route}: Props) {
             <ForwardIcon size={30} />
           </Pressable>
         </View>
+
+        {!canPlay ? (
+          <View style={styles.notReady}>
+            <Text style={styles.notReadyText}>
+              {firstEpisode
+                ? 'This episode is not ready to stream yet.'
+                : 'No streamable episode available yet.'}
+            </Text>
+          </View>
+        ) : null}
 
         <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
           <View style={styles.progressRow}>
@@ -183,6 +273,30 @@ export function PlayerScreen({navigation, route}: Props) {
 
 const styles = StyleSheet.create({
   root: {flex: 1, backgroundColor: '#000'},
+  stateRoot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  stateText: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    paddingHorizontal: spacing.lg,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {color: colors.brandText, fontSize: 14, fontWeight: '700'},
+  backLink: {padding: spacing.sm},
+  backText: {color: colors.textMuted, fontSize: 13},
   backdrop: {
     position: 'absolute',
     top: 0,
@@ -244,6 +358,23 @@ const styles = StyleSheet.create({
     shadowRadius: 30,
     shadowOffset: {width: 0, height: 10},
     elevation: 12,
+  },
+  notReady: {
+    position: 'absolute',
+    bottom: 140,
+    left: spacing.md,
+    right: spacing.md,
+    alignItems: 'center',
+  },
+  notReadyText: {
+    color: colors.textPrimary,
+    fontSize: 12,
+    opacity: 0.85,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
   },
   bottomBar: {
     paddingHorizontal: spacing.md,

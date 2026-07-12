@@ -4,15 +4,21 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ApiError,
   api,
+  configureAuth,
+  mePayloadToPublicUser,
   toPublicUser,
+  type AuthTokens,
   type AuthTokenResponseData,
+  type MobileUserProfile,
   type PublicUser,
+  type SessionBridge,
   type SignUpResponseData,
 } from '../lib/api';
 import {
@@ -51,6 +57,11 @@ type AuthContextValue = {
     currentPassword: string;
     newPassword: string;
   }) => Promise<void>;
+  refreshProfile: () => Promise<MobileUserProfile | null>;
+  updateProfile: (input: {
+    fullName?: string;
+    phone?: string;
+  }) => Promise<MobileUserProfile>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -72,6 +83,13 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   const [user, setUser] = useState<PublicUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
+
+  // Refs mirror the latest tokens/user so the api.ts session bridge (a
+  // synchronous getter) always sees fresh values, independent of React's
+  // render cycle.
+  const tokenRef = useRef<string | null>(null);
+  const refreshRef = useRef<string | null>(null);
+  const userRef = useRef<PublicUser | null>(null);
 
   const persistSession = useCallback(
     async (
@@ -100,6 +118,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
   const applySession = useCallback((tokens: AuthTokenResponseData) => {
     const nextUser = toPublicUser(tokens.user);
+    tokenRef.current = tokens.accessToken;
+    refreshRef.current = tokens.refreshToken;
+    userRef.current = nextUser;
     setToken(tokens.accessToken);
     setRefreshToken(tokens.refreshToken);
     setUser(nextUser);
@@ -107,6 +128,54 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     return nextUser;
   }, []);
 
+  const clearSession = useCallback(async () => {
+    tokenRef.current = null;
+    refreshRef.current = null;
+    userRef.current = null;
+    await persistSession(null, null, null);
+    try {
+      await signOutGoogle();
+    } catch {
+      // ignore
+    }
+    setToken(null);
+    setRefreshToken(null);
+    setUser(null);
+    setStatus('unauthenticated');
+  }, [persistSession]);
+
+  // Wire the api.ts session bridge exactly once on mount. It lets the
+  // request pipeline read the current refresh token, persist rotated
+  // tokens, and force-logout when refresh fails.
+  useEffect(() => {
+    const bridge: SessionBridge = {
+      getAccessToken: () => tokenRef.current,
+      getRefreshToken: () => refreshRef.current,
+      onTokensRefreshed: async (tokens: AuthTokens) => {
+        tokenRef.current = tokens.accessToken;
+        refreshRef.current = tokens.refreshToken;
+        setToken(tokens.accessToken);
+        setRefreshToken(tokens.refreshToken);
+        if (userRef.current) {
+          await persistSession(
+            tokens.accessToken,
+            tokens.refreshToken,
+            userRef.current,
+          );
+        }
+      },
+      onSessionExpired: async () => {
+        await clearSession();
+      },
+    };
+    configureAuth(bridge);
+    return () => {
+      configureAuth(null);
+    };
+  }, [clearSession, persistSession]);
+
+  // Hydrate from AsyncStorage on cold start, then best-effort refresh the
+  // user via /auth/me (falls back to stored copy on network failure).
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -123,15 +192,40 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           setStatus('unauthenticated');
           return;
         }
+        let parsedUser: PublicUser | null = null;
         try {
-          const parsedUser = JSON.parse(storedUser) as PublicUser;
-          setToken(storedAccess);
-          setRefreshToken(storedRefresh);
-          setUser(parsedUser);
-          setStatus('authenticated');
+          parsedUser = JSON.parse(storedUser) as PublicUser;
         } catch {
           await persistSession(null, null, null);
           setStatus('unauthenticated');
+          return;
+        }
+        tokenRef.current = storedAccess;
+        refreshRef.current = storedRefresh;
+        userRef.current = parsedUser;
+        setToken(storedAccess);
+        setRefreshToken(storedRefresh);
+        setUser(parsedUser);
+        setStatus('authenticated');
+
+        // Fire-and-forget /auth/me. Failure is non-fatal because the 401
+        // path will already have triggered logout via the session bridge.
+        try {
+          const me = await api.auth.me({token: storedAccess});
+          if (cancelled) {
+            return;
+          }
+          const fresh = mePayloadToPublicUser(me);
+          userRef.current = fresh;
+          setUser(fresh);
+          await persistSession(
+            tokenRef.current ?? storedAccess,
+            refreshRef.current,
+            fresh,
+          );
+        } catch {
+          // Keep the cached user; the bridge already handled 401 if that
+          // was the failure mode.
         }
       } catch {
         if (!cancelled) {
@@ -154,8 +248,6 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   );
 
   const signUp = useCallback<AuthContextValue['signUp']>(async input => {
-    // Signup only creates the pending account + sends OTP. The user is NOT
-    // authenticated until /auth/ott/verify-otp succeeds.
     return api.auth.signUp({
       email: input.email,
       password: input.password,
@@ -213,49 +305,98 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     // Best-effort server-side logout — bumps tokenVersion so any leaked
     // tokens are invalidated. Ignore failures so the local session still
     // clears (e.g. offline, expired token, etc.).
-    if (token) {
+    const current = tokenRef.current;
+    if (current) {
       try {
-        await api.auth.logout({token});
+        await api.auth.logout({token: current});
       } catch {
         // ignore
       }
     }
-    await persistSession(null, null, null);
-    try {
-      await signOutGoogle();
-    } catch {
-      // ignore
-    }
-    setToken(null);
-    setRefreshToken(null);
-    setUser(null);
-    setStatus('unauthenticated');
-  }, [persistSession, token]);
+    await clearSession();
+  }, [clearSession]);
 
   const changePassword = useCallback<AuthContextValue['changePassword']>(
     async ({currentPassword, newPassword}) => {
-      if (!token) {
+      const current = tokenRef.current;
+      if (!current) {
         throw new ApiError('You are not signed in.', 401);
       }
       await api.auth.changePassword({
-        token,
+        token: current,
         currentPassword,
         newPassword,
       });
       // Server bumped tokenVersion; existing tokens are now invalid on other
       // devices. On this device we sign out so the user re-authenticates.
-      await persistSession(null, null, null);
-      try {
-        await signOutGoogle();
-      } catch {
-        // ignore
-      }
-      setToken(null);
-      setRefreshToken(null);
-      setUser(null);
-      setStatus('unauthenticated');
+      await clearSession();
     },
-    [persistSession, token],
+    [clearSession],
+  );
+
+  const refreshProfile = useCallback<
+    AuthContextValue['refreshProfile']
+  >(async () => {
+    const current = tokenRef.current;
+    if (!current) {
+      return null;
+    }
+    try {
+      const profile = await api.profile.get({token: current});
+      const merged: PublicUser = {
+        id: profile.userId,
+        name: profile.fullName,
+        email: profile.email,
+        role: profile.role,
+        provider: 'email',
+        emailVerified: profile.emailVerified,
+        status: profile.status,
+        instituteId: null,
+      };
+      userRef.current = merged;
+      setUser(merged);
+      await persistSession(
+        tokenRef.current ?? current,
+        refreshRef.current,
+        merged,
+      );
+      return profile;
+    } catch {
+      return null;
+    }
+  }, [persistSession]);
+
+  const updateProfile = useCallback<AuthContextValue['updateProfile']>(
+    async input => {
+      const current = tokenRef.current;
+      if (!current) {
+        throw new ApiError('You are not signed in.', 401);
+      }
+      const profile = await api.profile.update({
+        token: current,
+        fullName: input.fullName,
+        phone: input.phone ?? undefined,
+      });
+      const merged: PublicUser = {
+        id: profile.userId,
+        name: profile.fullName,
+        email: profile.email,
+        role: profile.role,
+        provider: 'email',
+        emailVerified: profile.emailVerified,
+        status: profile.status,
+        instituteId: null,
+      };
+      userRef.current = merged;
+      setUser(merged);
+      await persistSession(
+        tokenRef.current ?? current,
+        refreshRef.current,
+        merged,
+      );
+      return profile;
+    },
+    [persistSession],
   );
 
   const value = useMemo<AuthContextValue>(
@@ -271,6 +412,8 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       signInWithApple,
       signOut,
       changePassword,
+      refreshProfile,
+      updateProfile,
     }),
     [
       status,
@@ -284,6 +427,8 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       signInWithApple,
       signOut,
       changePassword,
+      refreshProfile,
+      updateProfile,
     ],
   );
 

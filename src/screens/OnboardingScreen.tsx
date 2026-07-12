@@ -6,15 +6,34 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {colors, radius, spacing, typography} from '../theme/colors';
 import {PrimaryButton} from '../components/PrimaryButton';
 import {PlayIcon} from '../components/icons';
-import {featuredMovie, movies} from '../data/movies';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
-const COLUMN_POSTERS = [
-  ['m2', 's1', 'm5', 'm7'],
-  ['m4', 'm10', 's2', 'm6'],
-  ['m11', 'm3', 'm8', 's3'],
+// Decorative TMDB stills — user isn't authenticated yet on this screen, so
+// we can't call /webseries here. Bundling the URLs inline keeps the visual
+// language and avoids a spurious API hit / cold-start on first launch.
+const tmdb = (path: string) => `https://image.tmdb.org/t/p/w500${path}`;
+
+const COLUMN_POSTERS: string[][] = [
+  [
+    tmdb('/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg'),
+    tmdb('/58QT4cPJ2u2TqWZkterDq9q4yxQ.jpg'),
+    tmdb('/qJ2tW6WMUDux911r6m7haRef0WH.jpg'),
+    tmdb('/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg'),
+  ],
+  [
+    tmdb('/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'),
+    tmdb('/74xTEgt7R36Fpooo50r9T25onhq.jpg'),
+    tmdb('/lPPeqRIRZg9pjujwOsmnJc1TPmT.jpg'),
+    tmdb('/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg'),
+  ],
+  [
+    tmdb('/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg'),
+    tmdb('/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg'),
+    tmdb('/62HCnUTziyWcpDaBO2i1DX17ljH.jpg'),
+    tmdb('/rjkmN1dniUHVYAtwuV3Tji7FsDO.jpg'),
+  ],
 ];
 
 export function OnboardingScreen({navigation}: Props) {
@@ -25,20 +44,14 @@ export function OnboardingScreen({navigation}: Props) {
       <View style={styles.posterWall} pointerEvents="none">
         {COLUMN_POSTERS.map((col, i) => (
           <View key={i} style={[styles.column, i === 1 && styles.columnOffset]}>
-            {col.map(id => {
-              const m = movies.find(mv => mv.id === id);
-              if (!m) {
-                return null;
-              }
-              return (
-                <Image
-                  key={id}
-                  source={{uri: m.poster}}
-                  style={styles.poster}
-                  resizeMode="cover"
-                />
-              );
-            })}
+            {col.map(uri => (
+              <Image
+                key={uri}
+                source={{uri}}
+                style={styles.poster}
+                resizeMode="cover"
+              />
+            ))}
           </View>
         ))}
       </View>
@@ -63,18 +76,6 @@ export function OnboardingScreen({navigation}: Props) {
             Access thousands of 4K cinematic masterpieces and TV shows at your
             fingertips.
           </Text>
-        </View>
-
-        <View style={styles.hint}>
-          <Image
-            source={{uri: featuredMovie.backdrop}}
-            style={styles.hintImg}
-            resizeMode="cover"
-          />
-          <LinearGradient
-            colors={['rgba(10,10,10,0.1)', 'rgba(10,10,10,0.85)']}
-            style={StyleSheet.absoluteFill}
-          />
         </View>
 
         <View style={styles.footer}>
@@ -156,10 +157,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: 320,
   },
-  hint: {
-    height: 0,
-  },
-  hintImg: {display: 'none'},
   footer: {
     paddingBottom: spacing.md,
     gap: spacing.md,

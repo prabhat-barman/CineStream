@@ -1,5 +1,6 @@
-import React, {useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   StyleSheet,
@@ -11,10 +12,13 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {CompositeScreenProps} from '@react-navigation/native';
 import type {BottomTabScreenProps} from '@react-navigation/bottom-tabs';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {movies} from '../data/movies';
 import {colors, radius, spacing} from '../theme/colors';
 import {SearchIcon} from '../components/icons';
 import {MovieCard} from '../components/MovieCard';
+import {api} from '../lib/api';
+import {webseriesToContent} from '../lib/adapters';
+import {useApi} from '../lib/useApi';
+import {useAuth} from '../context/AuthContext';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
@@ -25,22 +29,46 @@ type Props = CompositeScreenProps<
 
 const QUICK = ['Sci-Fi', 'Action', 'Thriller', 'Drama', 'Animation', 'Crime'];
 
+const SEARCH_DEBOUNCE_MS = 350;
+
 export function SearchScreen({navigation}: Props) {
   const [q, setQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
   const [genre, setGenre] = useState<string | null>(null);
+  const {token} = useAuth();
 
-  const results = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    return movies.filter(m => {
-      const matchQ =
-        !query ||
-        m.title.toLowerCase().includes(query) ||
-        m.director.toLowerCase().includes(query) ||
-        m.cast.some(c => c.toLowerCase().includes(query));
-      const matchG = !genre || m.genres.includes(genre as any);
-      return matchQ && matchG;
-    });
-  }, [q, genre]);
+  // Debounce user typing so we don't hammer the backend on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const search = useCallback(
+    (signal: AbortSignal) => {
+      if (!token) {
+        return null;
+      }
+      return api.webseries
+        .list({
+          token,
+          status: 'PUBLISHED',
+          search: debouncedQ || undefined,
+          genre: genre ? genre.toLowerCase() : undefined,
+          limit: 30,
+          signal,
+        })
+        .then(res => res.data.map(webseriesToContent));
+    },
+    [token, debouncedQ, genre],
+  );
+
+  const {data, loading, error, reload} = useApi(search, [
+    token,
+    debouncedQ,
+    genre,
+  ]);
+
+  const results = data ?? [];
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -75,7 +103,13 @@ export function SearchScreen({navigation}: Props) {
             <Pressable
               onPress={() => setGenre(selected ? null : item)}
               style={[styles.chip, selected && styles.chipSelected]}>
-              <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{item}</Text>
+              <Text
+                style={[
+                  styles.chipText,
+                  selected && styles.chipTextSelected,
+                ]}>
+                {item}
+              </Text>
             </Pressable>
           );
         }}
@@ -99,10 +133,26 @@ export function SearchScreen({navigation}: Props) {
         contentContainerStyle={styles.grid}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No results</Text>
-            <Text style={styles.emptyBody}>Try a different search or filter.</Text>
-          </View>
+          loading ? (
+            <View style={styles.state}>
+              <ActivityIndicator color={colors.brand} />
+            </View>
+          ) : error ? (
+            <View style={styles.state}>
+              <Text style={styles.emptyTitle}>Couldn't load results</Text>
+              <Text style={styles.emptyBody}>{error}</Text>
+              <Pressable onPress={reload} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.state}>
+              <Text style={styles.emptyTitle}>No results</Text>
+              <Text style={styles.emptyBody}>
+                Try a different search or filter.
+              </Text>
+            </View>
+          )
         }
       />
     </SafeAreaView>
@@ -167,18 +217,34 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   gridItem: {},
-  empty: {
+  state: {
     alignItems: 'center',
     marginTop: spacing.xxl,
+    gap: spacing.sm,
   },
   emptyTitle: {
     color: colors.textPrimary,
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: 6,
   },
   emptyBody: {
     color: colors.textMuted,
     fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  retryBtn: {
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {
+    color: colors.brandText,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

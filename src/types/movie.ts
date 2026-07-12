@@ -1,53 +1,56 @@
-export type Genre =
-  | 'Action'
-  | 'Adventure'
-  | 'Sci-Fi'
-  | 'Drama'
-  | 'Thriller'
-  | 'Comedy'
-  | 'Animation'
-  | 'Crime'
-  | 'Romance'
-  | 'Horror'
-  | 'Documentary'
-  | 'Fantasy'
-  | 'Mystery';
+// Re-exports of backend content types + view-model shapes used by the UI.
+//
+// The frontend used to carry a hand-authored `Movie` type with fields (rating,
+// match, director, etc.) that the backend does not expose. We now source the
+// authoritative shape from `src/lib/api.ts` and derive a light view-model that
+// components can render safely — missing fields degrade gracefully.
 
-export type Movie = {
+export type {
+  Actor,
+  Episode as ApiEpisode,
+  MobileUserProfile,
+  Paginated,
+  PageMeta,
+  Webseries,
+  WebseriesStatus,
+  EpisodeStatus,
+} from '../lib/api';
+
+// View-model derived from Webseries. Screens and card components render this;
+// unknown values (rating, director, cast when unpopulated) stay `undefined`
+// and the UI shows a sensible fallback instead of a stale mock value.
+export type ContentItem = {
   id: string;
   title: string;
-  year: number;
-  rating: number;
-  match: number;
-  runtimeMin: number;
-  genres: Genre[];
+  year?: number;
+  runtimeMin?: number;
+  totalEpisodes?: number;
+  seasons?: number;
+  genres: string[];
   poster: string;
   backdrop: string;
   synopsis: string;
-  cast: string[];
-  director: string;
-  maturity: string;
-  seasons?: number;
+  cast?: string[];
+  maturity?: string;
   isNew?: boolean;
-  trending?: boolean;
+  isPremium?: boolean;
+  language?: string;
+  status?: string;
 };
+
+// Legacy alias — kept so existing components (MovieCard, MovieRow) don't need
+// simultaneous renames. Prefer `ContentItem` in new code.
+export type Movie = ContentItem;
 
 export type MovieRow = {
   id: string;
   title: string;
-  movies: Movie[];
+  movies: ContentItem[];
 };
 
-export type Episode = {
-  id: string;
-  season: number;
-  number: number;
-  title: string;
-  synopsis: string;
-  runtimeMin: number;
-  thumb: string;
-};
-
+// Backend-TODO placeholder types. Endpoints for these do not exist yet
+// (see docs/MOBILE_API.md "Known gaps"). Rendered from static seed data in
+// src/data/placeholders.ts until the backend ships them.
 export type Podcast = {
   id: string;
   title: string;
@@ -82,11 +85,4 @@ export type SubscriptionPlan = {
   interval: 'month' | 'year';
   perks: string[];
   highlighted?: boolean;
-};
-
-export type ContinueWatchingItem = {
-  id: string;
-  movie: Movie;
-  progress: number;
-  remainingMin: number;
 };

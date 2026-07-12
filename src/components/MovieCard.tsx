@@ -12,6 +12,9 @@ type Props = {
 
 export function MovieCard({movie, onPress, width = 120, showTitle}: Props) {
   const height = Math.round((width * 3) / 2);
+  const subParts = [movie.year, movie.genres[0]].filter(
+    (v): v is string | number => v !== undefined && v !== '',
+  );
   return (
     <Pressable
       onPress={onPress}
@@ -26,9 +29,9 @@ export function MovieCard({movie, onPress, width = 120, showTitle}: Props) {
           <Text numberOfLines={1} style={styles.title}>
             {movie.title}
           </Text>
-          <Text style={styles.sub}>
-            {movie.year} · {movie.genres[0]}
-          </Text>
+          {subParts.length ? (
+            <Text style={styles.sub}>{subParts.join(' · ')}</Text>
+          ) : null}
         </View>
       ) : null}
     </Pressable>

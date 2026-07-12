@@ -10,7 +10,7 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {colors, radius, spacing} from '../theme/colors';
-import {notifications, subscriptionPlans} from '../data/movies';
+import {notifications, subscriptionPlans} from '../data/placeholders';
 import {
   ChevronLeftIcon,
   CheckIcon,
@@ -74,7 +74,15 @@ export function NotificationsScreen({navigation}: Props) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}>
         {tab === 'notifications' ? (
-          Object.entries(grouped).map(([label, items]) => (
+          Object.keys(grouped).length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No notifications</Text>
+              <Text style={styles.emptyBody}>
+                We'll let you know when there's something new.
+              </Text>
+            </View>
+          ) : (
+            Object.entries(grouped).map(([label, items]) => (
             <View key={label} style={styles.group}>
               <Text style={styles.groupLabel}>{label.toUpperCase()}</Text>
               {items.map(n => (
@@ -114,6 +122,7 @@ export function NotificationsScreen({navigation}: Props) {
               ))}
             </View>
           ))
+          )
         ) : (
           <View style={styles.premiumWrap}>
             <View style={styles.premiumHero}>
@@ -376,5 +385,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     opacity: 0.85,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xxl,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  emptyBody: {
+    color: colors.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

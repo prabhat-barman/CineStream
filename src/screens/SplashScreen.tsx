@@ -9,12 +9,30 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {colors, spacing, typography} from '../theme/colors';
-import {movies} from '../data/movies';
 
-const COLUMN_POSTERS = [
-  ['m2', 's1', 'm5', 'm7'],
-  ['m4', 'm10', 's2', 'm6'],
-  ['m11', 'm3', 'm8', 's3'],
+// Decorative TMDB stills for the splash poster wall. Not user-scoped — no
+// need to hit the API (user isn't authenticated yet on this screen).
+const tmdb = (path: string) => `https://image.tmdb.org/t/p/w500${path}`;
+
+const COLUMN_POSTERS: string[][] = [
+  [
+    tmdb('/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg'),
+    tmdb('/58QT4cPJ2u2TqWZkterDq9q4yxQ.jpg'),
+    tmdb('/qJ2tW6WMUDux911r6m7haRef0WH.jpg'),
+    tmdb('/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg'),
+  ],
+  [
+    tmdb('/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg'),
+    tmdb('/74xTEgt7R36Fpooo50r9T25onhq.jpg'),
+    tmdb('/lPPeqRIRZg9pjujwOsmnJc1TPmT.jpg'),
+    tmdb('/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg'),
+  ],
+  [
+    tmdb('/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg'),
+    tmdb('/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg'),
+    tmdb('/62HCnUTziyWcpDaBO2i1DX17ljH.jpg'),
+    tmdb('/rjkmN1dniUHVYAtwuV3Tji7FsDO.jpg'),
+  ],
 ];
 
 export function SplashScreen() {
@@ -61,20 +79,14 @@ export function SplashScreen() {
                   ],
                 },
               ]}>
-              {col.concat(col).map((id, idx) => {
-                const m = movies.find(mv => mv.id === id);
-                if (!m) {
-                  return null;
-                }
-                return (
-                  <Image
-                    key={`${id}-${idx}`}
-                    source={{uri: m.poster}}
-                    style={styles.poster}
-                    resizeMode="cover"
-                  />
-                );
-              })}
+              {col.concat(col).map((uri, idx) => (
+                <Image
+                  key={`${uri}-${idx}`}
+                  source={{uri}}
+                  style={styles.poster}
+                  resizeMode="cover"
+                />
+              ))}
             </Animated.View>
           );
         })}

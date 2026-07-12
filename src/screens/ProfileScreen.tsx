@@ -1,10 +1,14 @@
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -25,6 +29,7 @@ import {
   WifiIcon,
 } from '../components/icons';
 import {useAuth} from '../context/AuthContext';
+import {api, ApiError, type MobileUserProfile} from '../lib/api';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
 
@@ -34,8 +39,64 @@ type Props = CompositeScreenProps<
 >;
 
 export function ProfileScreen({navigation}: Props) {
-  const {user, signOut} = useAuth();
+  const {user, token, signOut, updateProfile} = useAuth();
   const [wifiOnly, setWifiOnly] = useState(true);
+  const [profile, setProfile] = useState<MobileUserProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  const loadProfile = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!token) {
+        return;
+      }
+      setLoadingProfile(true);
+      setProfileError(null);
+      try {
+        const p = await api.profile.get({token, signal});
+        if (signal?.aborted) {
+          return;
+        }
+        setProfile(p);
+      } catch (err) {
+        if (signal?.aborted) {
+          return;
+        }
+        setProfileError(
+          err instanceof ApiError ? err.message : 'Could not load profile',
+        );
+      } finally {
+        if (!signal?.aborted) {
+          setLoadingProfile(false);
+        }
+      }
+    },
+    [token],
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadProfile(controller.signal);
+    return () => controller.abort();
+  }, [loadProfile]);
+
+  const displayName = profile?.fullName ?? user?.name ?? '—';
+  const initials = useMemo(
+    () =>
+      displayName
+        .split(' ')
+        .map(s => s[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase() || '?',
+    [displayName],
+  );
+  const displayEmail = profile?.email ?? user?.email ?? '—';
+  const displayPhone = profile?.phone ?? '—';
+  const subscriptionStatus = profile?.subscriptionStatus ?? 'none';
+  const isAdmin = user?.role === 'admin';
 
   const logout = () => {
     void signOut();
@@ -45,15 +106,18 @@ export function ProfileScreen({navigation}: Props) {
     navigation.navigate('ChangePassword');
   };
 
-  const displayName = user?.name ?? 'Julian Sterling';
-  const initials = (user?.name ?? 'JS')
-    .split(' ')
-    .map(s => s[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-  const displayEmail = user?.email ?? 'julian@cinestream.app';
-  const isAdmin = user?.role === 'admin';
+  const onSaveEdit = async (input: {fullName?: string; phone?: string}) => {
+    try {
+      const updated = await updateProfile(input);
+      setProfile(updated);
+      setEditing(false);
+    } catch (err) {
+      Alert.alert(
+        'Update failed',
+        err instanceof ApiError ? err.message : 'Please try again.',
+      );
+    }
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -69,7 +133,10 @@ export function ProfileScreen({navigation}: Props) {
             <View style={styles.avatar}>
               <Text style={styles.avatarInitials}>{initials}</Text>
             </View>
-            <Pressable style={styles.avatarEdit} hitSlop={8}>
+            <Pressable
+              onPress={() => setEditing(true)}
+              style={styles.avatarEdit}
+              hitSlop={8}>
               <EditIcon size={12} color={colors.brandText} />
             </Pressable>
           </View>
@@ -77,18 +144,32 @@ export function ProfileScreen({navigation}: Props) {
           <View style={styles.premiumBadge}>
             <CrownIcon size={12} color="#ffb400" />
             <Text style={styles.premiumBadgeText}>
-              {isAdmin ? 'ADMIN' : 'PREMIUM MEMBER'}
+              {isAdmin
+                ? 'ADMIN'
+                : subscriptionStatus === 'active'
+                  ? 'PREMIUM MEMBER'
+                  : 'FREE MEMBER'}
             </Text>
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <Stat label="Watched" value="124" />
-          <View style={styles.statDivider} />
-          <Stat label="Watchlist" value="48" />
-          <View style={styles.statDivider} />
-          <Stat label="Reviews" value="12" />
-        </View>
+        {profileError ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{profileError}</Text>
+            <Pressable
+              onPress={() => loadProfile()}
+              style={styles.retryBtn}
+              hitSlop={6}>
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {loadingProfile && !profile ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={colors.brand} size="small" />
+          </View>
+        ) : null}
 
         <Section title="App Settings">
           <Row
@@ -109,6 +190,18 @@ export function ProfileScreen({navigation}: Props) {
             icon={<MailIcon size={18} color={colors.textPrimary} />}
             label="Email"
             hint={displayEmail}
+          />
+          <Row
+            icon={<EditIcon size={18} color={colors.textPrimary} />}
+            label="Full Name"
+            hint={displayName}
+            onPress={() => setEditing(true)}
+          />
+          <Row
+            icon={<EditIcon size={18} color={colors.textPrimary} />}
+            label="Phone"
+            hint={displayPhone}
+            onPress={() => setEditing(true)}
           />
           <Row
             icon={<KeyIcon size={18} color={colors.textPrimary} />}
@@ -137,16 +230,124 @@ export function ProfileScreen({navigation}: Props) {
 
         <Text style={styles.version}>CineStream v0.1.0</Text>
       </ScrollView>
+
+      <EditProfileModal
+        visible={editing}
+        initialFullName={profile?.fullName ?? user?.name ?? ''}
+        initialPhone={profile?.phone ?? ''}
+        onClose={() => setEditing(false)}
+        onSave={onSaveEdit}
+      />
     </SafeAreaView>
   );
 }
 
-function Stat({label, value}: {label: string; value: string}) {
+type EditProps = {
+  visible: boolean;
+  initialFullName: string;
+  initialPhone: string;
+  onClose: () => void;
+  onSave: (input: {fullName?: string; phone?: string}) => Promise<void>;
+};
+
+function EditProfileModal({
+  visible,
+  initialFullName,
+  initialPhone,
+  onClose,
+  onSave,
+}: EditProps) {
+  const [fullName, setFullName] = useState(initialFullName);
+  const [phone, setPhone] = useState(initialPhone);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setFullName(initialFullName);
+      setPhone(initialPhone);
+    }
+  }, [visible, initialFullName, initialPhone]);
+
+  const submit = async () => {
+    const trimmedName = fullName.trim();
+    const trimmedPhone = phone.trim();
+    const patch: {fullName?: string; phone?: string} = {};
+    if (trimmedName && trimmedName !== initialFullName) {
+      patch.fullName = trimmedName;
+    }
+    if (trimmedPhone !== initialPhone) {
+      patch.phone = trimmedPhone;
+    }
+    if (!Object.keys(patch).length) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(patch);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <View style={styles.stat}>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}>
+      <View style={editStyles.backdrop}>
+        <View style={editStyles.sheet}>
+          <Text style={editStyles.title}>Edit profile</Text>
+
+          <Text style={editStyles.label}>Full name</Text>
+          <TextInput
+            value={fullName}
+            onChangeText={setFullName}
+            placeholder="Your name"
+            placeholderTextColor={colors.placeholder}
+            style={editStyles.input}
+            autoCapitalize="words"
+          />
+
+          <Text style={editStyles.label}>Phone</Text>
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="+919876543210"
+            placeholderTextColor={colors.placeholder}
+            keyboardType="phone-pad"
+            style={editStyles.input}
+          />
+
+          <View style={editStyles.row}>
+            <Pressable
+              onPress={onClose}
+              disabled={saving}
+              style={({pressed}) => [
+                editStyles.btnGhost,
+                pressed && {opacity: 0.85},
+              ]}>
+              <Text style={editStyles.btnGhostText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={submit}
+              disabled={saving}
+              style={({pressed}) => [
+                editStyles.btn,
+                pressed && {opacity: 0.9},
+                saving && {opacity: 0.7},
+              ]}>
+              {saving ? (
+                <ActivityIndicator color={colors.brandText} size="small" />
+              ) : (
+                <Text style={editStyles.btnText}>Save</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -174,7 +375,11 @@ function Row({icon, label, hint, onPress}: RowProps) {
       {icon ? <View style={styles.rowIcon}>{icon}</View> : <View style={styles.rowIcon} />}
       <View style={styles.rowLabelWrap}>
         <Text style={styles.rowLabel}>{label}</Text>
-        {hint ? <Text style={styles.rowHint}>{hint}</Text> : null}
+        {hint ? (
+          <Text style={styles.rowHint} numberOfLines={1}>
+            {hint}
+          </Text>
+        ) : null}
       </View>
       <ChevronRightIcon size={16} color={colors.textMuted} />
     </Pressable>
@@ -281,24 +486,36 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1,
   },
-  statsRow: {
+  errorBanner: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    padding: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: colors.glassBg,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    paddingVertical: spacing.md,
+    borderColor: 'rgba(229,9,20,0.4)',
+    backgroundColor: 'rgba(229,9,20,0.08)',
     marginBottom: spacing.md,
   },
-  stat: {flex: 1, alignItems: 'center'},
-  statValue: {color: colors.textPrimary, fontSize: 20, fontWeight: '800'},
-  statLabel: {
-    color: colors.textMuted,
-    fontSize: 11,
-    marginTop: 4,
-    letterSpacing: 0.4,
+  errorText: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: 12,
   },
-  statDivider: {width: 1, backgroundColor: colors.glassBorder},
+  retryBtn: {
+    paddingHorizontal: spacing.md,
+    height: 30,
+    borderRadius: radius.sm,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  retryText: {color: colors.brandText, fontSize: 11, fontWeight: '700'},
+  loadingRow: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
   section: {marginBottom: spacing.md},
   sectionTitle: {
     color: colors.textMuted,
@@ -355,5 +572,81 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.md,
     opacity: 0.6,
+  },
+});
+
+const editStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+    borderTopWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  title: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: spacing.md,
+  },
+  label: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    marginTop: spacing.sm,
+    textTransform: 'uppercase',
+  },
+  input: {
+    height: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    color: colors.textPrimary,
+    fontSize: 15,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: spacing.sm + 2,
+    marginTop: spacing.lg,
+  },
+  btn: {
+    flex: 1,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnText: {
+    color: colors.brandText,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  btnGhost: {
+    flex: 1,
+    height: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: colors.glassBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnGhostText: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
