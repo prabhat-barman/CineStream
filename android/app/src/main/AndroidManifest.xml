@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Android 13+ requires runtime permission before showing notifications. -->
@@ -41,12 +42,18 @@
       <!-- Pin the default FCM notification icon + colour so system-rendered
            banners look correct without every payload having to set them.
            Uses launcher icon as a safe fallback; replace with a mono-white
-           notification icon before shipping to production. -->
+           notification icon before shipping to production.
+           tools:replace is required because react-native-firebase/messaging
+           declares its own (empty) copies of these meta-data entries and
+           the manifest merger otherwise fails with a conflict on release
+           builds. -->
       <meta-data
           android:name="com.google.firebase.messaging.default_notification_icon"
-          android:resource="@mipmap/ic_launcher" />
+          android:resource="@mipmap/ic_launcher"
+          tools:replace="android:resource" />
       <meta-data
           android:name="com.google.firebase.messaging.default_notification_channel_id"
-          android:value="cinestream-default" />
+          android:value="cinestream-default"
+          tools:replace="android:value" />
     </application>
 </manifest>
