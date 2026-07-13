@@ -15,6 +15,10 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Firebase — required by @react-native-firebase/messaging so the
+        // build wires up google-services.json into the manifest at build
+        // time. Version pinned to the last one that supports AGP 8.x.
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 

@@ -164,6 +164,60 @@ export type Actor = {
   skills?: string[];
 };
 
+// ------------------------------
+// Notifications & push
+// ------------------------------
+
+export type NotificationType =
+  | 'system'
+  | 'subscription'
+  | 'upload'
+  | 'content_approval'
+  | 'general'
+  | 'new_release'
+  | 'trending'
+  | 'recommendation'
+  | 'reminder';
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  message: string;
+  type: NotificationType;
+  isRead: boolean;
+  deepLink?: string;
+  imageUrl?: string;
+  data?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NotificationsListData = {
+  notifications: AppNotification[];
+  unreadCount: number;
+};
+
+export type UnreadCountData = {
+  count: number;
+};
+
+export type MarkReadResponseData = {
+  updated: number;
+};
+
+export type DevicePlatform = 'ios' | 'android' | 'web';
+
+export type DeviceTokenRecord = {
+  id: string;
+  token: string;
+  platform: DevicePlatform;
+  deviceId?: string;
+  appVersion?: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type PageMeta = {
   total: number;
   page: number;
@@ -875,6 +929,82 @@ export const api = {
         token: input.token,
         signal: input.signal,
       }),
+  },
+
+  notifications: {
+    // Paginated list. Response body has both the notification array AND the
+    // unread count so callers can drive the bell badge from any list call.
+    list: (input: {
+      token: string;
+      page?: number;
+      limit?: number;
+      status?: 'unread' | 'read' | 'all';
+      type?: NotificationType;
+      signal?: AbortSignal;
+    }) =>
+      request<NotificationsListData>('/notifications', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {
+          page: input.page,
+          limit: input.limit,
+          status: input.status,
+          type: input.type,
+        },
+      }),
+
+    unreadCount: (input: {token: string; signal?: AbortSignal}) =>
+      request<UnreadCountData>('/notifications/unread-count', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    // Omit `ids` (or pass empty) to mark all unread as read.
+    markRead: (input: {token: string; ids?: string[]}) =>
+      request<MarkReadResponseData>('/notifications/mark-read', {
+        method: 'POST',
+        token: input.token,
+        body: input.ids && input.ids.length > 0 ? {ids: input.ids} : {},
+      }),
+
+    delete: (input: {token: string; id: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/notifications/${encodeURIComponent(input.id)}`,
+        {method: 'DELETE', token: input.token},
+      ),
+
+    clear: (input: {token: string}) =>
+      request<{deleted: number}>('/notifications/all', {
+        method: 'DELETE',
+        token: input.token,
+      }),
+  },
+
+  deviceTokens: {
+    // Idempotent: safe to call on every app launch. Backend upserts by
+    // token, so refresh events don't create duplicate rows.
+    register: (input: {
+      token: string;
+      body: {
+        token: string;
+        platform: DevicePlatform;
+        deviceId?: string;
+        appVersion?: string;
+      };
+    }) =>
+      request<DeviceTokenRecord>('/device-tokens', {
+        method: 'POST',
+        token: input.token,
+        body: input.body,
+      }),
+
+    unregister: (input: {token: string; deviceToken: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/device-tokens/${encodeURIComponent(input.deviceToken)}`,
+        {method: 'DELETE', token: input.token},
+      ),
   },
 };
 

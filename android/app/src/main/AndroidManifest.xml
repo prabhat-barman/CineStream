@@ -1,6 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android 13+ requires runtime permission before showing notifications. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Optional: allow the app to show heads-up notifications while in the
+         foreground and to schedule follow-up reminders. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
       android:name=".MainApplication"
@@ -22,6 +27,26 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+        <!-- Deep-link handler for tapped push notifications. FCM tap sends
+             an intent-launch with the app's launcher activity; we accept the
+             cinestream://... scheme so index.js can route it. -->
+        <intent-filter android:autoVerify="false">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="cinestream" />
+        </intent-filter>
       </activity>
+
+      <!-- Pin the default FCM notification icon + colour so system-rendered
+           banners look correct without every payload having to set them.
+           Uses launcher icon as a safe fallback; replace with a mono-white
+           notification icon before shipping to production. -->
+      <meta-data
+          android:name="com.google.firebase.messaging.default_notification_icon"
+          android:resource="@mipmap/ic_launcher" />
+      <meta-data
+          android:name="com.google.firebase.messaging.default_notification_channel_id"
+          android:value="cinestream-default" />
     </application>
 </manifest>

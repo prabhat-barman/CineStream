@@ -27,6 +27,10 @@ import {
   signInWithGoogleNative,
   signOutGoogle,
 } from '../lib/oauth';
+import {
+  registerDeviceForPush,
+  unregisterDeviceFromPush,
+} from '../lib/pushNotifications';
 
 const ACCESS_KEY = 'cinestream.auth.accessToken';
 const REFRESH_KEY = 'cinestream.auth.refreshToken';
@@ -125,6 +129,11 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     setRefreshToken(tokens.refreshToken);
     setUser(nextUser);
     setStatus('authenticated');
+    // Fire-and-forget: register this device with the push backend so the
+    // user gets FCM notifications on this handset. Failures here (denied
+    // permission, missing native SDK, backend hiccup) must not block the
+    // sign-in — the app still works, just without push.
+    void registerDeviceForPush(tokens.accessToken);
     return nextUser;
   }, []);
 
@@ -207,6 +216,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
         setRefreshToken(storedRefresh);
         setUser(parsedUser);
         setStatus('authenticated');
+        // Best-effort re-register on cold start so a token refreshed by
+        // FCM while the app was closed reaches our backend.
+        void registerDeviceForPush(storedAccess);
 
         // Fire-and-forget /auth/me. Failure is non-fatal because the 401
         // path will already have triggered logout via the session bridge.
@@ -307,6 +319,15 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     // clears (e.g. offline, expired token, etc.).
     const current = tokenRef.current;
     if (current) {
+      // Unregister push token FIRST — while the JWT still works. Order
+      // matters: if we clear the session first, /device-tokens/:token
+      // would 401 and we'd leave a stale token in the DB that keeps
+      // pinging the wrong user on this device.
+      try {
+        await unregisterDeviceFromPush(current);
+      } catch {
+        // ignore
+      }
       try {
         await api.auth.logout({token: current});
       } catch {

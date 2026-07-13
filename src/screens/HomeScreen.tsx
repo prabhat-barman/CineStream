@@ -31,6 +31,7 @@ import {api} from '../lib/api';
 import {webseriesToContent} from '../lib/adapters';
 import {useApi} from '../lib/useApi';
 import {useAuth} from '../context/AuthContext';
+import {useNotificationsBadge} from '../context/NotificationsContext';
 import type {ContentItem} from '../types/movie';
 import type {MainTabParamList} from '../navigation/MainTabs';
 import type {RootStackParamList} from '../navigation/RootNavigator';
@@ -52,6 +53,7 @@ type HomePayload = {
 export function HomeScreen({navigation}: Props) {
   const [activeTab, setActiveTab] = useState<HeroTab>('Movies');
   const {token} = useAuth();
+  const {unreadCount} = useNotificationsBadge();
 
   const fetchHome = useCallback(
     async (signal: AbortSignal): Promise<HomePayload> => {
@@ -119,6 +121,7 @@ export function HomeScreen({navigation}: Props) {
           onPlay={playMovie}
           onOpen={openMovie}
           onOpenNotifications={() => navigation.navigate('Notifications')}
+          unreadCount={unreadCount}
         />
 
         {trending.length ? (
@@ -230,6 +233,7 @@ type HeroProps = {
   onPlay: (id: string) => void;
   onOpen: (id: string) => void;
   onOpenNotifications: () => void;
+  unreadCount: number;
 };
 
 function HeroSection({
@@ -242,6 +246,7 @@ function HeroSection({
   onPlay,
   onOpen,
   onOpenNotifications,
+  unreadCount,
 }: HeroProps) {
   return (
     <View style={styles.hero}>
@@ -274,7 +279,13 @@ function HeroSection({
             </Pressable>
             <Pressable hitSlop={8} onPress={onOpenNotifications}>
               <BellIcon />
-              <View style={styles.bellDot} />
+              {unreadCount > 0 ? (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText} numberOfLines={1}>
+                    {unreadCount > 99 ? '99+' : String(unreadCount)}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -462,6 +473,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand,
     borderWidth: 1,
     borderColor: colors.background,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.brand,
+    borderWidth: 1.5,
+    borderColor: colors.background,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBadgeText: {
+    color: colors.brandText,
+    fontSize: 10,
+    fontWeight: '800',
+    lineHeight: 12,
   },
   chipsRow: {
     flexDirection: 'row',
