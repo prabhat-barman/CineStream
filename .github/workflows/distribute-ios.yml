@@ -139,8 +139,11 @@ jobs:
               check IOS_ADHOC_PROVISION_PROFILE_BASE64     "$IOS_ADHOC_PROVISION_PROFILE_BASE64"
               ;;
             simulator)
-              check FIREBASE_SERVICE_ACCOUNT               "$FIREBASE_SERVICE_ACCOUNT"
-              check FIREBASE_IOS_APP_ID                    "$FIREBASE_IOS_APP_ID"
+              # The simulator lane produces an unsigned .app.zip that Firebase
+              # App Distribution will not accept (only signed IPAs are allowed).
+              # We distribute it as a GitHub Actions build artifact instead —
+              # no secrets required.
+              echo "simulator lane distributes via GitHub Actions artifact — no secrets required."
               ;;
             testflight)
               check IOS_DIST_CERT_P12_BASE64               "$IOS_DIST_CERT_P12_BASE64"
@@ -164,7 +167,9 @@ jobs:
           echo "All required secrets for lane '$LANE' are present."
 
       - name: Write Firebase service account JSON
-        if: env.LANE != 'testflight'
+        # Only the `beta` lane uploads to Firebase App Distribution; `simulator`
+        # ships via GitHub artifact and `testflight` ships via App Store Connect.
+        if: env.LANE == 'beta'
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: |
@@ -190,6 +195,10 @@ jobs:
         run: bundle exec fastlane ios "$LANE"
 
       - name: Upload build artifacts
+        # For the simulator lane this artifact IS the distribution channel — Mac
+        # testers download CineStream-simulator.zip from the run summary and
+        # install into their booted iOS Simulator. For beta/testflight it's
+        # kept for debugging (Firebase / App Store Connect already got the IPA).
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -197,5 +206,22 @@ jobs:
           path: |
             ios/fastlane/build/**
             ios/fastlane/*.log
-          retention-days: 14
-          if-no-files-found: ignore
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Print simulator-install instructions
+        if: env.LANE == 'simulator' && success()
+        run: |
+          cat <<'INSTRUCTIONS'
+          =========================================================
+           iOS Simulator build ready for testers (Mac only)
+          =========================================================
+           1. Open this run on GitHub, scroll to "Artifacts".
+           2. Download "ios-simulator-${{ github.sha }}".
+           3. Unzip; you get CineStream-simulator.zip → unzip that too.
+           4. Boot a simulator:  open -a Simulator
+           5. Install & launch:
+              xcrun simctl install booted CineStream.app
+              xcrun simctl launch  booted com.cinestream
+          =========================================================
+          INSTRUCTIONS

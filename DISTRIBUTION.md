@@ -168,11 +168,13 @@ firebase appdistribution:distribute android/app/build/outputs/bundle/release/app
 iOS distribution is orchestrated by **fastlane** (`ios/fastlane/Fastfile`).
 Three lanes are wired up out of the box:
 
-| Lane | What it does | Needs Apple Developer Program? |
-| --- | --- | --- |
-| `fastlane ios simulator` | Builds an unsigned Simulator `.app`, zips it, uploads it to Firebase App Distribution. Testers run it in Xcode's iOS Simulator on their Mac. | **No** — works today with just a Mac + Xcode. |
-| `fastlane ios beta` | Builds a signed **ad-hoc IPA** and uploads it to Firebase App Distribution. Testers install it directly on registered iPhones/iPads. | **Yes** — needs a paid Apple Dev account + registered UDIDs. |
-| `fastlane ios testflight` | Builds a signed **app-store IPA** and uploads it to TestFlight via the App Store Connect API. Testers get an email invite from Apple. | **Yes** — needs a paid Apple Dev account + a matching App Store Connect app record. |
+| Lane | What it does | Distribution channel | Needs Apple Developer Program? |
+| --- | --- | --- | --- |
+| `fastlane ios simulator` | Builds an unsigned Simulator `.app`, zips it, exposes it as a build artifact. | **GitHub Actions run artifact** — testers download & install via `xcrun simctl`. | **No** — works today with just a Mac + Xcode. |
+| `fastlane ios beta` | Builds a signed **ad-hoc IPA**. | **Firebase App Distribution** — testers install on registered iPhones/iPads. | **Yes** — needs paid Apple Dev + registered UDIDs. |
+| `fastlane ios testflight` | Builds a signed **app-store IPA**. | **Apple TestFlight** via App Store Connect API. | **Yes** — needs paid Apple Dev + a matching App Store Connect app record. |
+
+> **Why isn't the simulator lane wired to Firebase App Distribution?** Firebase App Distribution only accepts signed `.ipa` (real device) / `.apk` / `.aab`. Simulator `.app` builds are not distributable through Firebase — see their own [codelab note](https://firebase.google.com/codelabs/appdistribution-udid-collection) ("simulators cannot download releases"). For simulator builds we therefore rely on GitHub Actions' artifact storage, which is free, per-run, and needs zero extra configuration.
 
 ### Prerequisites for iOS
 
@@ -200,16 +202,24 @@ Additional prerequisites per lane are called out inline below.
 
 ### Local: ship a Simulator build (no Apple Dev needed)
 
-Great for internal review before signing/certs are ready.
+Great for internal review before signing/certs are ready. **No env vars required.**
 
 ```bash
-export FIREBASE_IOS_APP_ID='1:55460051377:ios:xxxxxxxxxxx'
 npm run distribute:ios:simulator
 ```
 
-Under the hood: `xcodebuild build -sdk iphonesimulator` → `ditto -c -k` → `firebase-tools appdistribution:distribute`.
+Under the hood: `xcodebuild build -sdk iphonesimulator` → `ditto -c -k` produces `ios/fastlane/build/CineStream-simulator.zip`.
 
-Testers open the invite email on a Mac, download the zip, and drag the `.app` onto a running iOS Simulator (or use `xcrun simctl install booted CineStream.app`).
+The zip contains a `CineStream.app` bundle. Testers (Mac only) install it into a booted simulator with:
+
+```bash
+unzip CineStream-simulator.zip
+open -a Simulator                          # boot the default simulator
+xcrun simctl install booted CineStream.app # install
+xcrun simctl launch  booted com.cinestream  # launch
+```
+
+In CI, the same zip is uploaded as an artifact named **`ios-simulator-<sha>`** on every workflow run. Testers can grab it directly from the run summary page on GitHub. No Firebase account, no Apple ID, no email invites needed.
 
 ### Local: ship a real-device beta (needs Apple Dev)
 
@@ -264,8 +274,8 @@ Add the following under **Settings → Secrets and variables → Actions**:
 
 | Secret | Used by lane | How to get it |
 | --- | --- | --- |
-| `FIREBASE_SERVICE_ACCOUNT` | `beta`, `simulator` | Already set up for Android — reused as-is. |
-| `FIREBASE_IOS_APP_ID` | `beta`, `simulator` | The `1:...:ios:...` string shown in Firebase console after registering the iOS app. |
+| `FIREBASE_SERVICE_ACCOUNT` | `beta` | Already set up for Android — reused as-is. |
+| `FIREBASE_IOS_APP_ID` | `beta` | The `1:...:ios:...` string shown in Firebase console after registering the iOS app. |
 | `IOS_DIST_CERT_P12_BASE64` | `beta`, `testflight` | Export your distribution cert from Keychain Access → *Certificates* → right-click → *Export* → `.p12`. Then `base64 -i cert.p12 \| pbcopy`. |
 | `IOS_DIST_CERT_PASSWORD` | `beta`, `testflight` | The password you set when exporting the `.p12`. |
 | `IOS_ADHOC_PROVISION_PROFILE_BASE64` | `beta` | `base64 -i CineStream_AdHoc.mobileprovision \| pbcopy` after downloading the profile from the Apple Developer portal. |

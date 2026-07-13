@@ -146,7 +146,7 @@ platform :ios do
     )
   end
 
-  desc 'Build an *unsigned* iOS Simulator .app, zip it, and ship it to Firebase App Distribution. No Apple Developer account needed — great for early testing.'
+  desc 'Build an *unsigned* iOS Simulator .app, zip it, and expose it as a build artifact for Mac testers. No Apple Developer account needed. Firebase App Distribution intentionally does *not* accept simulator builds (only signed IPAs for real devices), so distribution here is via the GitHub Actions run artifact — testers grab CineStream-simulator.zip from the run summary and `xcrun simctl install booted CineStream.app`.'
   lane :simulator do
     bump_build_number
 
@@ -175,20 +175,22 @@ platform :ios do
     FileUtils.rm_f(zip_path)
     sh('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', app_path, zip_path)
 
-    firebase_app_id = ENV['FIREBASE_IOS_APP_ID']
-    UI.user_error!('Missing FIREBASE_IOS_APP_ID env var. See CineStream/DISTRIBUTION.md.') if firebase_app_id.to_s.empty?
-
-    groups     = ENV['FIREBASE_TESTER_GROUPS'] || 'testers'
-    notes      = read_release_notes + "\n\n(Simulator build — install & run in Xcode's iOS Simulator only.)"
+    # Write release notes alongside the zip so it's easy to identify the build.
+    notes      = read_release_notes + "\n\n(iOS Simulator build — Mac testers only. Install with `xcrun simctl install booted CineStream.app`.)"
     notes_file = File.join(BUILD_DIR, 'release-notes.txt')
     File.write(notes_file, notes)
 
-    sh(
-      'npx', '--yes', 'firebase-tools', 'appdistribution:distribute', zip_path,
-      '--app', firebase_app_id,
-      '--release-notes-file', notes_file,
-      '--groups', groups
-    )
+    zip_size_mb = (File.size(zip_path).to_f / (1024 * 1024)).round(1)
+    UI.success("iOS Simulator build ready")
+    UI.message("  Path:  #{zip_path}")
+    UI.message("  Size:  #{zip_size_mb} MB")
+    UI.message('')
+    UI.message('In CI, this file is uploaded as the run artifact "ios-simulator-<sha>".')
+    UI.message('Testers download it from the GitHub Actions run summary page, then:')
+    UI.message('  1. unzip CineStream-simulator.zip')
+    UI.message('  2. open -a Simulator      # boots the default simulator')
+    UI.message('  3. xcrun simctl install booted CineStream.app')
+    UI.message('  4. xcrun simctl launch booted com.cinestream')
   end
 
   desc 'Build a signed App-Store IPA and upload it to TestFlight via App Store Connect API key.'
