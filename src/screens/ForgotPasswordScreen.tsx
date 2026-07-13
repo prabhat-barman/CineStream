@@ -28,13 +28,13 @@ export function ForgotPasswordScreen({navigation}: Props) {
     setInfo(null);
     try {
       const res = await api.auth.forgotPassword({email: trimmed});
-      // If mail send failed AND there's no dev OTP fallback, don't route the
-      // user into a reset screen they can't complete. Show a clear retry ask.
+      // If mail send failed, don't route the user into a reset screen they
+      // can't complete — the user must receive the code in their inbox.
       // Note: the backend returns a generic "if the email exists…" message
       // for enumeration safety even when the email doesn't exist, so we can
       // only distinguish a hard mail failure from a normal request via the
       // explicit `emailSent` flag.
-      if (res.emailSent === false && !res.otp) {
+      if (res.emailSent === false) {
         setSent(false);
         setError(
           "We couldn't send the reset email right now. Please try again in a moment.",
@@ -43,13 +43,10 @@ export function ForgotPasswordScreen({navigation}: Props) {
       }
       setSent(true);
       setInfo(
-        res.otp
-          ? `Dev OTP: ${res.otp}`
-          : 'If the email exists, an OTP will be sent.',
+        'If the email exists, an OTP has been sent. Check your inbox (and spam folder).',
       );
       navigation.navigate('ResetPassword', {
         email: trimmed,
-        devOtp: res.otp,
         expiresInMinutes: res.otpExpiresInMinutes ?? 10,
       });
     } catch (err) {

@@ -13,12 +13,10 @@ export type AuthStackParamList = {
   ForgotPassword: undefined;
   ResetPassword: {
     email: string;
-    devOtp?: string;
     expiresInMinutes?: number;
   };
   VerifyOtp: {
     email: string;
-    devOtp?: string;
     expiresInMinutes?: number;
     emailSent?: boolean;
   };

@@ -23,20 +23,17 @@ const OTP_LEN = 6;
 const MIN_PASSWORD = 6;
 
 export function ResetPasswordScreen({route, navigation}: Props) {
-  const {email, devOtp, expiresInMinutes = 10} = route.params;
+  const {email, expiresInMinutes = 10} = route.params;
 
-  const [digits, setDigits] = useState<string[]>(() => {
-    const seed = (devOtp ?? '').replace(/\D/g, '').slice(0, OTP_LEN);
-    return Array.from({length: OTP_LEN}, (_, i) => seed[i] ?? '');
-  });
+  const [digits, setDigits] = useState<string[]>(() =>
+    Array.from({length: OTP_LEN}, () => ''),
+  );
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(
-    devOtp ? `Dev OTP prefilled: ${devOtp}` : null,
-  );
+  const [info, setInfo] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(expiresInMinutes * 60);
 
   const inputs = useRef<Array<TextInput | null>>([]);
@@ -134,9 +131,9 @@ export function ResetPasswordScreen({route, navigation}: Props) {
     setInfo(null);
     try {
       const res = await api.auth.forgotPassword({email});
-      // Mail send failed AND no dev fallback → don't pretend a code was sent;
-      // surface an error so the user can retry instead of waiting forever.
-      if (res.emailSent === false && !res.otp) {
+      // Mail send failed → don't pretend a code was sent; surface an error so
+      // the user can retry instead of waiting forever.
+      if (res.emailSent === false) {
         setError(
           "We couldn’t send the reset email right now. Please try again in a moment.",
         );
@@ -144,9 +141,7 @@ export function ResetPasswordScreen({route, navigation}: Props) {
       }
       setSecondsLeft((res.otpExpiresInMinutes ?? 10) * 60);
       setInfo(
-        res.otp
-          ? `New dev OTP: ${res.otp}`
-          : 'A new OTP has been sent if the email exists.',
+        'A new OTP has been sent. Check your inbox (and spam folder).',
       );
     } catch (err) {
       const message =

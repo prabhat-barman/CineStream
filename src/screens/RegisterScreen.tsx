@@ -77,10 +77,9 @@ export function RegisterScreen({navigation}: Props) {
         password,
         phone: cleanedPhone || undefined,
       });
-      // If mail send failed AND the backend didn't expose a dev OTP fallback
-      // (i.e. we're in production), don't route the user into an OTP screen
-      // they can't complete. Show an actionable error and let them retry.
-      if (res.emailSent === false && !res.otp) {
+      // If mail send failed, don't route into an OTP screen the user can't
+      // complete — the user has to actually receive the code in their inbox.
+      if (res.emailSent === false) {
         setError(
           "We couldn't send the verification email right now. Please try again in a moment.",
         );
@@ -88,7 +87,6 @@ export function RegisterScreen({navigation}: Props) {
       }
       navigation.navigate('VerifyOtp', {
         email: res.email,
-        devOtp: res.otp,
         expiresInMinutes: res.otpExpiresInMinutes,
         emailSent: res.emailSent,
       });

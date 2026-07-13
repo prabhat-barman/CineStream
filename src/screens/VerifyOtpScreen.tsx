@@ -21,33 +21,24 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'VerifyOtp'>;
 const OTP_LEN = 6;
 
 export function VerifyOtpScreen({route, navigation}: Props) {
-  const {email, devOtp, expiresInMinutes = 10, emailSent} = route.params;
+  const {email, expiresInMinutes = 10, emailSent} = route.params;
   const {verifyOtp} = useAuth();
 
-  const [digits, setDigits] = useState<string[]>(() => {
-    const seed = (devOtp ?? '').replace(/\D/g, '').slice(0, OTP_LEN);
-    return Array.from({length: OTP_LEN}, (_, i) => seed[i] ?? '');
-  });
+  const [digits, setDigits] = useState<string[]>(() =>
+    Array.from({length: OTP_LEN}, () => ''),
+  );
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
-  // Hard-fail case: mail send failed on the backend AND no dev OTP fallback
-  // is available. The user can't verify from this screen without a new OTP —
-  // surface it as an error and let them retry via the Resend button.
+  // Hard-fail case: mail send failed on the backend. The user can't verify
+  // without receiving the code — surface it as an error and let them retry
+  // via the Resend button.
   const [error, setError] = useState<string | null>(() => {
-    if (emailSent === false && !devOtp) {
+    if (emailSent === false) {
       return "We couldn’t send the verification email. Tap 'Resend' below or try again in a moment.";
     }
     return null;
   });
-  const [info, setInfo] = useState<string | null>(() => {
-    if (!devOtp) {
-      return null;
-    }
-    if (emailSent === false) {
-      return `We couldn’t send the email right now. Use this code to continue: ${devOtp}`;
-    }
-    return `Dev OTP prefilled: ${devOtp}`;
-  });
+  const [info, setInfo] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(expiresInMinutes * 60);
 
   const inputs = useRef<Array<TextInput | null>>([]);
@@ -140,25 +131,12 @@ export function VerifyOtpScreen({route, navigation}: Props) {
       const res = await api.auth.resendOtp({email});
       // Reset the countdown for the freshly-issued OTP.
       setSecondsLeft((res.otpExpiresInMinutes ?? expiresInMinutes) * 60);
-      // If the backend returned a dev OTP fallback (mail failed but the server
-      // still lets us complete via the response), prefill the boxes so the
-      // user can proceed. Otherwise just tell them to check their inbox.
-      if (res.otp) {
-        const seed = res.otp.replace(/\D/g, '').slice(0, OTP_LEN);
-        setDigits(
-          Array.from({length: OTP_LEN}, (_, i) => seed[i] ?? ''),
-        );
-        setInfo(
-          res.emailSent === false
-            ? `Email delivery is down — use this code to continue: ${res.otp}`
-            : `New code sent. Dev OTP prefilled: ${res.otp}`,
+      if (res.emailSent === false) {
+        setError(
+          "We couldn’t send the email. Please try again in a moment.",
         );
       } else {
-        setInfo(
-          res.emailSent
-            ? 'New code sent. Check your inbox (and spam folder).'
-            : 'We couldn’t send the email. Please try again in a moment.',
-        );
+        setInfo('New code sent. Check your inbox (and spam folder).');
       }
     } catch (err) {
       const message =
