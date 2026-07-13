@@ -85,7 +85,7 @@ platform :ios do
   desc 'Set CFBundleVersion to a monotonically-increasing timestamp so App Store Connect + Firebase never reject a rebuild.'
   private_lane :bump_build_number do
     stamp = Time.now.strftime('%Y%m%d%H%M')
-    increment_build_number_in_xcodeproj(
+    increment_build_number(
       xcodeproj:    XCODE_PROJECT,
       build_number: stamp
     )
