@@ -30,6 +30,11 @@ export type PublicUser = {
   emailVerified: boolean;
   status?: UserStatus;
   instituteId?: string | null;
+  // Optional so both MOBILE_USER (from /mobile-users/profile) and STUDENT
+  // (from /auth/me → studentProfile.phone) can populate it without every
+  // caller having to guard on a role check.
+  phone?: string | null;
+  avatarUrl?: string | null;
 };
 
 export type AuthTokens = {
@@ -98,8 +103,32 @@ export type MobileUserProfile = {
   updatedAt?: string;
 };
 
+// Shape returned by /auth/me when the caller is a STUDENT. Diverges from
+// MobileUserProfile because the backend nests the domain-specific fields
+// under `profile` (the actual `Student` document) instead of flattening
+// them onto the response.
+export type StudentAuthProfile = {
+  _id?: string;
+  fullName: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string | null;
+  admissionNumber?: string;
+  instituteId?: string;
+  isDeleted?: boolean;
+};
+
+export type StudentMeResponse = {
+  id: string;
+  email: string;
+  role: 'STUDENT';
+  instituteId?: string;
+  profile: StudentAuthProfile | null;
+};
+
 export type MeResponseData =
   | (MobileUserProfile & {name?: never})
+  | StudentMeResponse
   | AuthUser;
 
 // ------------------------------
@@ -1025,9 +1054,28 @@ export function toPublicUser(u: AuthUser): PublicUser {
   };
 }
 
-// /auth/me is role-aware. For MOBILE_USER the backend returns fullName +
-// phone in place of the flat `name` field.
+// /auth/me is role-aware — normalise each shape into PublicUser so the
+// rest of the app can stay role-agnostic.
 export function mePayloadToPublicUser(payload: MeResponseData): PublicUser {
+  // STUDENT: {id, email, role, instituteId, profile: {fullName, phone, ...}}
+  if (
+    'role' in payload &&
+    payload.role === 'STUDENT' &&
+    'profile' in payload
+  ) {
+    const p = payload.profile;
+    return {
+      id: payload.id,
+      name: p?.fullName ?? payload.email.split('@')[0] ?? 'Student',
+      email: payload.email,
+      role: 'STUDENT',
+      provider: 'email',
+      emailVerified: true,
+      instituteId: payload.instituteId ?? p?.instituteId ?? null,
+      phone: p?.phone ?? null,
+    };
+  }
+  // MOBILE_USER: flattened MobileUserProfile
   if ('fullName' in payload && payload.fullName) {
     return {
       id: payload.userId,
@@ -1038,6 +1086,7 @@ export function mePayloadToPublicUser(payload: MeResponseData): PublicUser {
       emailVerified: payload.emailVerified ?? payload.status === 'active',
       status: payload.status,
       instituteId: null,
+      phone: payload.phone ?? null,
     };
   }
   return toPublicUser(payload as AuthUser);

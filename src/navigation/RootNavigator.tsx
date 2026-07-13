@@ -2,6 +2,7 @@ import React from 'react';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {AuthNavigator} from './AuthNavigator';
 import {MainTabs} from './MainTabs';
+import {StudentTabs} from './StudentTabs';
 import {MovieDetailsScreen} from '../screens/MovieDetailsScreen';
 import {SplashScreen} from '../screens/SplashScreen';
 import {OnboardingScreen} from '../screens/OnboardingScreen';
@@ -25,7 +26,13 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigator() {
-  const {status} = useAuth();
+  const {status, user} = useAuth();
+  // Students get a stripped-down shell (Profile-only tab + change
+  // password); every other allowed role (MOBILE_USER) sees the full app.
+  // We branch on the tab-navigator level rather than the individual
+  // screens so React Navigation resets cleanly when the role flips
+  // (e.g. logout → login as a different user).
+  const isStudent = user?.role === 'STUDENT';
 
   if (status === 'loading') {
     return (
@@ -51,22 +58,33 @@ export function RootNavigator() {
       }}>
       {status === 'authenticated' ? (
         <>
-          <Stack.Screen name="Main" component={MainTabs} />
           <Stack.Screen
-            name="MovieDetails"
-            component={MovieDetailsScreen}
-            options={{animation: 'slide_from_bottom'}}
+            name="Main"
+            component={isStudent ? StudentTabs : MainTabs}
           />
-          <Stack.Screen
-            name="Player"
-            component={PlayerScreen}
-            options={{animation: 'fade', orientation: 'portrait'}}
-          />
-          <Stack.Screen
-            name="Notifications"
-            component={NotificationsScreen}
-            options={{animation: 'slide_from_right'}}
-          />
+          {/* Movie / Player only make sense for streaming subscribers.
+              Registering them for students would let a stray navigation
+              call push a 403-only screen; keeping them stack-scoped to
+              MOBILE_USER prevents that class of bug. */}
+          {isStudent ? null : (
+            <>
+              <Stack.Screen
+                name="MovieDetails"
+                component={MovieDetailsScreen}
+                options={{animation: 'slide_from_bottom'}}
+              />
+              <Stack.Screen
+                name="Player"
+                component={PlayerScreen}
+                options={{animation: 'fade', orientation: 'portrait'}}
+              />
+              <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{animation: 'slide_from_right'}}
+              />
+            </>
+          )}
           <Stack.Screen
             name="ChangePassword"
             component={ChangePasswordScreen}

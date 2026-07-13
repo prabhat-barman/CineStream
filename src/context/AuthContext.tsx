@@ -83,26 +83,27 @@ export class SocialNotEnabledError extends Error {
 }
 
 /**
- * Thrown when a valid backend account tries to sign in but isn't a
- * MOBILE_USER (e.g. STUDENT / INSTITUTE_ADMIN / SUPER_ADMIN credentials
- * used against the CineStream mobile app).
- *
- * The account is real and the password was correct — we just don't want
- * these users past the login screen because every MOBILE_USER-scoped
- * endpoint (profile, watchlist, notifications, device-tokens…) will 403.
- * Better to block once at the door than dribble access-denied banners
- * across every tab.
+ * Thrown when a valid backend account tries to sign in but isn't one of
+ * the two roles this app supports (MOBILE_USER — full app; STUDENT —
+ * profile-only). Institute / super admins are blocked here because
+ * every non-admin endpoint (profile, watchlist, notifications, device
+ * tokens…) would 403 anyway — better a single clear error at the door
+ * than access-denied banners scattered across every tab.
  */
 export class WrongAppRoleError extends Error {
   readonly role: string;
   constructor(role: string) {
     super(
-      `This account (role: ${role}) can't sign in here. CineStream mobile is for subscriber accounts only.`,
+      `This account (role: ${role}) can't sign in here. Please use the admin dashboard instead.`,
     );
     this.name = 'WrongAppRoleError';
     this.role = role;
   }
 }
+
+// Roles that are allowed to pass the login gate. Keep this in one place
+// so applySession + hydration + the /auth/me refresh all agree.
+const ALLOWED_ROLES = new Set<string>(['MOBILE_USER', 'STUDENT']);
 
 export function AuthProvider({children}: {children: React.ReactNode}) {
   const [status, setStatus] = useState<AuthStatus>('loading');
@@ -143,11 +144,11 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   );
 
   const applySession = useCallback((tokens: AuthTokenResponseData) => {
-    // Gate on role BEFORE persisting anything. If we let a non-MOBILE_USER
-    // through, the app's tabs would all render but every MOBILE_USER-only
-    // endpoint (profile, watchlist, notifications) would 403 — a much
-    // worse UX than a single clear "wrong app" error at login.
-    if (tokens.user.role !== 'MOBILE_USER') {
+    // Gate on role BEFORE persisting anything. MOBILE_USER gets the full
+    // app; STUDENT gets a stripped-down profile-only shell (see
+    // navigation/RootNavigator). Any other role would just 403 across the
+    // board, so we reject them at the door with a clear message instead.
+    if (!ALLOWED_ROLES.has(tokens.user.role)) {
       throw new WrongAppRoleError(tokens.user.role);
     }
     const nextUser = toPublicUser(tokens.user);
@@ -238,10 +239,11 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           setStatus('unauthenticated');
           return;
         }
-        // Defensive: if a legacy build stored a non-MOBILE_USER session
-        // (e.g. before the login-role gate landed), drop it on cold start
-        // so we don't leak the same 403 loop to the user.
-        if (parsedUser.role !== 'MOBILE_USER') {
+        // Defensive: if a legacy build stored a session for a role that
+        // this app no longer supports (e.g. INSTITUTE_ADMIN from an older
+        // shared-login flow), drop it on cold start so we don't leak the
+        // same 403 loop to the user.
+        if (!ALLOWED_ROLES.has(parsedUser.role)) {
           await persistSession(null, null, null);
           setStatus('unauthenticated');
           return;
@@ -266,9 +268,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           }
           const fresh = mePayloadToPublicUser(me);
           // Same guard as sign-in: if the backend ever flips this account
-          // off the MOBILE_USER role, drop the session locally instead of
-          // showing 403s across the tabs.
-          if (fresh.role !== 'MOBILE_USER') {
+          // off one of the supported roles, drop the session locally
+          // instead of showing 403s across the tabs.
+          if (!ALLOWED_ROLES.has(fresh.role)) {
             await clearSession();
             return;
           }
