@@ -24,19 +24,37 @@ export function ChangePasswordScreen({navigation}: Props) {
 
   const passwordsMatch = next.length > 0 && next === confirm;
   const differentFromCurrent = current.length > 0 && next !== current;
+  // Only require that all three inputs have SOMETHING typed so the button
+  // isn't confusingly disabled. Length + match + different-from-current
+  // are validated on submit and surfaced as inline errors — the user
+  // doesn't get pre-scolded while they're mid-typing.
   const canSubmit =
-    current.length > 0 &&
-    next.length >= MIN_PASSWORD &&
-    passwordsMatch &&
-    differentFromCurrent &&
-    !busy;
+    current.length > 0 && next.length > 0 && confirm.length > 0 && !busy;
 
   const onSubmit = async () => {
-    if (!canSubmit) {
+    if (busy) {
+      return;
+    }
+    setError(null);
+    // Validate on tap, not on every keystroke — this matches the user
+    // request to only show the "min 6" hint after they press Submit.
+    if (current.length === 0) {
+      setError('Enter your current password.');
+      return;
+    }
+    if (next.length < MIN_PASSWORD) {
+      setError(`New password must be at least ${MIN_PASSWORD} characters.`);
+      return;
+    }
+    if (!differentFromCurrent) {
+      setError('New password must be different from the current one.');
+      return;
+    }
+    if (!passwordsMatch) {
+      setError("Passwords don't match.");
       return;
     }
     setBusy(true);
-    setError(null);
     try {
       await changePassword({currentPassword: current, newPassword: next});
       // On success AuthContext signs the user out; root navigator will swap to
@@ -72,7 +90,7 @@ export function ChangePasswordScreen({navigation}: Props) {
         />
         <AuthInput
           icon={<LockIcon />}
-          placeholder="New password (min 6 characters)"
+          placeholder="New password"
           secure
           value={next}
           onChangeText={setNext}
@@ -86,14 +104,6 @@ export function ChangePasswordScreen({navigation}: Props) {
         />
       </View>
 
-      {next.length > 0 && !differentFromCurrent ? (
-        <Text style={styles.error}>
-          New password must be different from the current one.
-        </Text>
-      ) : null}
-      {next.length > 0 && confirm.length > 0 && !passwordsMatch ? (
-        <Text style={styles.error}>Passwords don&apos;t match.</Text>
-      ) : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <PrimaryButton

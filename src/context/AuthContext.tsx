@@ -82,6 +82,28 @@ export class SocialNotEnabledError extends Error {
   }
 }
 
+/**
+ * Thrown when a valid backend account tries to sign in but isn't a
+ * MOBILE_USER (e.g. STUDENT / INSTITUTE_ADMIN / SUPER_ADMIN credentials
+ * used against the CineStream mobile app).
+ *
+ * The account is real and the password was correct — we just don't want
+ * these users past the login screen because every MOBILE_USER-scoped
+ * endpoint (profile, watchlist, notifications, device-tokens…) will 403.
+ * Better to block once at the door than dribble access-denied banners
+ * across every tab.
+ */
+export class WrongAppRoleError extends Error {
+  readonly role: string;
+  constructor(role: string) {
+    super(
+      `This account (role: ${role}) can't sign in here. CineStream mobile is for subscriber accounts only.`,
+    );
+    this.name = 'WrongAppRoleError';
+    this.role = role;
+  }
+}
+
 export function AuthProvider({children}: {children: React.ReactNode}) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<PublicUser | null>(null);
@@ -121,6 +143,13 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   );
 
   const applySession = useCallback((tokens: AuthTokenResponseData) => {
+    // Gate on role BEFORE persisting anything. If we let a non-MOBILE_USER
+    // through, the app's tabs would all render but every MOBILE_USER-only
+    // endpoint (profile, watchlist, notifications) would 403 — a much
+    // worse UX than a single clear "wrong app" error at login.
+    if (tokens.user.role !== 'MOBILE_USER') {
+      throw new WrongAppRoleError(tokens.user.role);
+    }
     const nextUser = toPublicUser(tokens.user);
     tokenRef.current = tokens.accessToken;
     refreshRef.current = tokens.refreshToken;
@@ -209,6 +238,14 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
           setStatus('unauthenticated');
           return;
         }
+        // Defensive: if a legacy build stored a non-MOBILE_USER session
+        // (e.g. before the login-role gate landed), drop it on cold start
+        // so we don't leak the same 403 loop to the user.
+        if (parsedUser.role !== 'MOBILE_USER') {
+          await persistSession(null, null, null);
+          setStatus('unauthenticated');
+          return;
+        }
         tokenRef.current = storedAccess;
         refreshRef.current = storedRefresh;
         userRef.current = parsedUser;
@@ -228,6 +265,13 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
             return;
           }
           const fresh = mePayloadToPublicUser(me);
+          // Same guard as sign-in: if the backend ever flips this account
+          // off the MOBILE_USER role, drop the session locally instead of
+          // showing 403s across the tabs.
+          if (fresh.role !== 'MOBILE_USER') {
+            await clearSession();
+            return;
+          }
           userRef.current = fresh;
           setUser(fresh);
           await persistSession(
@@ -248,7 +292,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     return () => {
       cancelled = true;
     };
-  }, [persistSession]);
+  }, [persistSession, clearSession]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {

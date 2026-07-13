@@ -31,6 +31,10 @@ const QUICK = ['Sci-Fi', 'Action', 'Thriller', 'Drama', 'Animation', 'Crime'];
 
 const SEARCH_DEBOUNCE_MS = 350;
 
+// Hoisted out of the FlatList to avoid re-creating the component every
+// render (react/no-unstable-nested-components).
+const ChipSeparator = () => <View style={styles.chipGap} />;
+
 export function SearchScreen({navigation}: Props) {
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
@@ -90,30 +94,38 @@ export function SearchScreen({navigation}: Props) {
         ) : null}
       </View>
 
-      <FlatList
-        horizontal
-        data={QUICK}
-        keyExtractor={g => g}
-        contentContainerStyle={styles.chipsRow}
-        showsHorizontalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={{width: 8}} />}
-        renderItem={({item}) => {
-          const selected = genre === item;
-          return (
-            <Pressable
-              onPress={() => setGenre(selected ? null : item)}
-              style={[styles.chip, selected && styles.chipSelected]}>
-              <Text
-                style={[
-                  styles.chipText,
-                  selected && styles.chipTextSelected,
+      <View style={styles.chipsWrap}>
+        <FlatList
+          horizontal
+          data={QUICK}
+          keyExtractor={g => g}
+          contentContainerStyle={styles.chipsRow}
+          showsHorizontalScrollIndicator={false}
+          ItemSeparatorComponent={ChipSeparator}
+          renderItem={({item}) => {
+            const selected = genre === item;
+            return (
+              <Pressable
+                onPress={() => setGenre(selected ? null : item)}
+                hitSlop={4}
+                style={({pressed}) => [
+                  styles.chip,
+                  selected && styles.chipSelected,
+                  pressed && !selected && styles.chipPressed,
                 ]}>
-                {item}
-              </Text>
-            </Pressable>
-          );
-        }}
-      />
+                <Text
+                  style={[
+                    styles.chipText,
+                    selected && styles.chipTextSelected,
+                  ]}
+                  numberOfLines={1}>
+                  {item}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
+      </View>
 
       <FlatList
         data={results}
@@ -183,30 +195,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  // Fixed-height wrapper so the row never collapses / stretches with the
+  // (variable) intrinsic size of the chip children. Prevents the "empty
+  // pill outline" ghost that appears when the FlatList reserves more
+  // vertical space than its content actually paints (visible on some
+  // Android skins with low-contrast borders).
+  chipsWrap: {
+    height: 44,
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
   chipsRow: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
+    alignItems: 'center',
   },
+  chipGap: {width: 8},
   chip: {
+    height: 34,
+    minWidth: 68,
     paddingHorizontal: spacing.md,
-    paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
-    backgroundColor: colors.glassBg,
+    borderColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipPressed: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   chipSelected: {
     backgroundColor: colors.brand,
     borderColor: colors.brand,
   },
   chipText: {
-    color: colors.textMuted,
+    color: colors.textPrimary,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   chipTextSelected: {
     color: colors.brandText,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   grid: {
     paddingHorizontal: spacing.md,
