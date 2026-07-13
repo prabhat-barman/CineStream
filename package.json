@@ -10,6 +10,9 @@
     "test": "jest",
     "build:android:release": "cd android && ./gradlew clean assembleRelease",
     "distribute:android": "npm run build:android:release && firebase appdistribution:distribute android/app/build/outputs/apk/release/app-release.apk --app 1:55460051377:android:44de0ae4a092b408a6e590 --release-notes-file RELEASE_NOTES.md --groups testers",
+    "distribute:ios": "cd ios && bundle exec fastlane ios beta",
+    "distribute:ios:simulator": "cd ios && bundle exec fastlane ios simulator",
+    "distribute:ios:testflight": "cd ios && bundle exec fastlane ios testflight",
     "firebase:login": "firebase login"
   },
   "dependencies": {

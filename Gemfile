@@ -15,3 +15,7 @@ gem 'logger'
 gem 'benchmark'
 gem 'mutex_m'
 gem 'nkf'
+
+# Fastlane — used for iOS beta / TestFlight distribution.
+# See ios/fastlane/Fastfile and DISTRIBUTION.md.
+gem 'fastlane', '>= 2.222.0'

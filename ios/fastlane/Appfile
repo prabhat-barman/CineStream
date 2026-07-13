@@ -1,0 +1,7 @@
+app_identifier("com.cinestream") # The bundle identifier of your app
+
+# Uncomment and fill these once the Apple Developer Program is active.
+# These are only needed for the `testflight` lane (App Store Connect upload).
+# apple_id(ENV['FASTLANE_APPLE_ID'])
+# itc_team_id(ENV['FASTLANE_ITC_TEAM_ID'])
+# team_id(ENV['FASTLANE_TEAM_ID'])

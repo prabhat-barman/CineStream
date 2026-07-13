@@ -1,0 +1,245 @@
+require 'base64'
+require 'fileutils'
+require 'securerandom'
+require 'tmpdir'
+
+# Fastlane config for CineStream iOS distribution.
+#
+# Lanes:
+#   fastlane ios beta         → Ad-hoc IPA → Firebase App Distribution
+#   fastlane ios simulator    → Simulator .app.zip → Firebase App Distribution (no Apple Dev needed)
+#   fastlane ios testflight   → App Store IPA → TestFlight (needs Apple Dev + App Store Connect record)
+#
+# All three lanes are safe to run locally *and* in CI. In CI, code-signing
+# is bootstrapped from base64-encoded secrets (see setup_ci_signing below).
+# Locally, signing falls back to whatever Xcode already has configured.
+
+default_platform(:ios)
+
+APP_IDENTIFIER   = 'com.cinestream'
+XCODE_SCHEME     = 'CineStream'
+XCODE_PROJECT    = 'CineStream.xcodeproj'
+XCODE_WORKSPACE  = 'CineStream.xcworkspace'
+BUILD_DIR        = File.expand_path('build', __dir__)
+DERIVED_DATA_DIR = File.expand_path('derived-data', __dir__)
+RELEASE_NOTES    = File.expand_path('../../RELEASE_NOTES.md', __dir__)
+
+platform :ios do
+  before_all do
+    FileUtils.mkdir_p(BUILD_DIR)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private helpers
+  # ---------------------------------------------------------------------------
+
+  desc 'Import distribution certificate + provisioning profile from base64 env vars (CI only)'
+  private_lane :setup_ci_signing do |options|
+    profile_type = options[:profile_type] || 'adhoc'
+    profile_env_key = profile_type == 'appstore' ?
+      'IOS_APPSTORE_PROVISION_PROFILE_BASE64' :
+      'IOS_ADHOC_PROVISION_PROFILE_BASE64'
+
+    cert_b64 = ENV['IOS_DIST_CERT_P12_BASE64']
+    cert_pw  = ENV['IOS_DIST_CERT_PASSWORD']
+    profile_b64 = ENV[profile_env_key]
+
+    missing = []
+    missing << 'IOS_DIST_CERT_P12_BASE64' if cert_b64.to_s.empty?
+    missing << 'IOS_DIST_CERT_PASSWORD'   if cert_pw.to_s.empty?
+    missing << profile_env_key            if profile_b64.to_s.empty?
+    unless missing.empty?
+      UI.user_error!("Missing required CI signing secrets: #{missing.join(', ')}. See CineStream/DISTRIBUTION.md → 'iOS CI secrets'.")
+    end
+
+    keychain_name = 'cinestream-ci.keychain-db'
+    keychain_pw   = ENV['IOS_KEYCHAIN_PASSWORD'] || SecureRandom.hex(16)
+
+    create_keychain(
+      name:                  keychain_name,
+      password:              keychain_pw,
+      default_keychain:      true,
+      unlock:                true,
+      timeout:               3600,
+      lock_when_sleeps:      false,
+      add_to_search_list:    true
+    )
+
+    p12_path = File.join(Dir.tmpdir, 'ios_dist.p12')
+    File.binwrite(p12_path, Base64.decode64(cert_b64))
+    import_certificate(
+      certificate_path:     p12_path,
+      certificate_password: cert_pw,
+      keychain_name:        keychain_name,
+      keychain_password:    keychain_pw
+    )
+    FileUtils.rm_f(p12_path)
+
+    profile_path = File.join(Dir.tmpdir, "ios_#{profile_type}.mobileprovision")
+    File.binwrite(profile_path, Base64.decode64(profile_b64))
+    install_provisioning_profile(path: profile_path)
+
+    UI.message("CI code-signing initialised (#{profile_type})")
+  end
+
+  desc 'Set CFBundleVersion to a monotonically-increasing timestamp so App Store Connect + Firebase never reject a rebuild.'
+  private_lane :bump_build_number do
+    stamp = Time.now.strftime('%Y%m%d%H%M')
+    increment_build_number_in_xcodeproj(
+      xcodeproj:    XCODE_PROJECT,
+      build_number: stamp
+    )
+    UI.message("CFBundleVersion → #{stamp}")
+  end
+
+  desc 'Render release notes for testers (falls back to a single-line default).'
+  private_lane :read_release_notes do
+    if File.exist?(RELEASE_NOTES)
+      File.read(RELEASE_NOTES)
+    else
+      "CineStream iOS beta build #{Time.now.utc.iso8601}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Public lanes
+  # ---------------------------------------------------------------------------
+
+  desc 'Build a signed ad-hoc IPA and ship it to Firebase App Distribution testers.'
+  lane :beta do
+    setup_ci_signing(profile_type: 'adhoc') if is_ci
+    bump_build_number
+
+    build_app(
+      workspace:              XCODE_WORKSPACE,
+      scheme:                 XCODE_SCHEME,
+      configuration:          'Release',
+      export_method:          'ad-hoc',
+      clean:                  true,
+      output_directory:       BUILD_DIR,
+      output_name:            'CineStream.ipa',
+      derived_data_path:      DERIVED_DATA_DIR,
+      silent:                 true,
+      skip_profile_detection: false
+    )
+
+    firebase_app_id = ENV['FIREBASE_IOS_APP_ID']
+    UI.user_error!('Missing FIREBASE_IOS_APP_ID env var (register the iOS app in the Firebase console, then export the "1:...:ios:..." ID). See CineStream/DISTRIBUTION.md.') if firebase_app_id.to_s.empty?
+
+    groups   = ENV['FIREBASE_TESTER_GROUPS'] || 'testers'
+    ipa_path = lane_context[SharedValues::IPA_OUTPUT_PATH]
+    notes    = read_release_notes
+    notes_file = File.join(BUILD_DIR, 'release-notes.txt')
+    File.write(notes_file, notes)
+
+    sh(
+      'npx', '--yes', 'firebase-tools', 'appdistribution:distribute', ipa_path,
+      '--app', firebase_app_id,
+      '--release-notes-file', notes_file,
+      '--groups', groups
+    )
+  end
+
+  desc 'Build an *unsigned* iOS Simulator .app, zip it, and ship it to Firebase App Distribution. No Apple Developer account needed — great for early testing.'
+  lane :simulator do
+    bump_build_number
+
+    sim_dir = File.join(DERIVED_DATA_DIR, 'sim-build')
+    FileUtils.rm_rf(sim_dir)
+    FileUtils.mkdir_p(sim_dir)
+
+    sh(
+      'xcodebuild',
+      '-workspace', XCODE_WORKSPACE,
+      '-scheme', XCODE_SCHEME,
+      '-configuration', 'Release',
+      '-sdk', 'iphonesimulator',
+      '-destination', 'generic/platform=iOS Simulator',
+      '-derivedDataPath', sim_dir,
+      'CODE_SIGNING_ALLOWED=NO',
+      'CODE_SIGNING_REQUIRED=NO',
+      'ONLY_ACTIVE_ARCH=NO',
+      'build'
+    )
+
+    app_path = Dir[File.join(sim_dir, 'Build', 'Products', 'Release-iphonesimulator', "#{XCODE_SCHEME}.app")].first
+    UI.user_error!('Simulator .app not found — did xcodebuild fail?') if app_path.nil? || !Dir.exist?(app_path)
+
+    zip_path = File.join(BUILD_DIR, "#{XCODE_SCHEME}-simulator.zip")
+    FileUtils.rm_f(zip_path)
+    sh('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', app_path, zip_path)
+
+    firebase_app_id = ENV['FIREBASE_IOS_APP_ID']
+    UI.user_error!('Missing FIREBASE_IOS_APP_ID env var. See CineStream/DISTRIBUTION.md.') if firebase_app_id.to_s.empty?
+
+    groups     = ENV['FIREBASE_TESTER_GROUPS'] || 'testers'
+    notes      = read_release_notes + "\n\n(Simulator build — install & run in Xcode's iOS Simulator only.)"
+    notes_file = File.join(BUILD_DIR, 'release-notes.txt')
+    File.write(notes_file, notes)
+
+    sh(
+      'npx', '--yes', 'firebase-tools', 'appdistribution:distribute', zip_path,
+      '--app', firebase_app_id,
+      '--release-notes-file', notes_file,
+      '--groups', groups
+    )
+  end
+
+  desc 'Build a signed App-Store IPA and upload it to TestFlight via App Store Connect API key.'
+  lane :testflight do
+    setup_ci_signing(profile_type: 'appstore') if is_ci
+    bump_build_number
+
+    api_key_id       = ENV['APP_STORE_CONNECT_API_KEY_ID']
+    api_issuer_id    = ENV['APP_STORE_CONNECT_API_ISSUER_ID']
+    api_key_content  = ENV['APP_STORE_CONNECT_API_KEY_CONTENT_BASE64']
+    missing = []
+    missing << 'APP_STORE_CONNECT_API_KEY_ID'             if api_key_id.to_s.empty?
+    missing << 'APP_STORE_CONNECT_API_ISSUER_ID'          if api_issuer_id.to_s.empty?
+    missing << 'APP_STORE_CONNECT_API_KEY_CONTENT_BASE64' if api_key_content.to_s.empty?
+    unless missing.empty?
+      UI.user_error!("Missing required App Store Connect API secrets: #{missing.join(', ')}. See CineStream/DISTRIBUTION.md → 'TestFlight secrets'.")
+    end
+
+    api_key = app_store_connect_api_key(
+      key_id:                api_key_id,
+      issuer_id:             api_issuer_id,
+      key_content:           api_key_content,
+      is_key_content_base64: true,
+      in_house:              false
+    )
+
+    build_app(
+      workspace:         XCODE_WORKSPACE,
+      scheme:            XCODE_SCHEME,
+      configuration:     'Release',
+      export_method:     'app-store',
+      clean:             true,
+      output_directory:  BUILD_DIR,
+      output_name:       'CineStream.ipa',
+      derived_data_path: DERIVED_DATA_DIR,
+      silent:            true
+    )
+
+    upload_to_testflight(
+      api_key:                            api_key,
+      app_identifier:                     APP_IDENTIFIER,
+      ipa:                                lane_context[SharedValues::IPA_OUTPUT_PATH],
+      skip_waiting_for_build_processing:  true,
+      changelog:                          read_release_notes,
+      distribute_external:                false
+    )
+  end
+
+  # ---------------------------------------------------------------------------
+  # Lifecycle hooks
+  # ---------------------------------------------------------------------------
+
+  after_all do |lane|
+    UI.success("iOS lane '#{lane}' finished successfully.")
+  end
+
+  error do |lane, exception|
+    UI.error("iOS lane '#{lane}' failed: #{exception.message}")
+  end
+end

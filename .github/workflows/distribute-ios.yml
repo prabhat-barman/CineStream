@@ -1,0 +1,178 @@
+name: Distribute iOS beta
+
+# Push to main → build signed iOS IPA → upload to Firebase App Distribution
+# (or TestFlight if lane=testflight is dispatched). Runs on macOS since Xcode
+# is required. Skipped for docs-only / android-only / CI-only changes.
+#
+# One-time setup (repo Settings → Secrets and variables → Actions):
+#   FIREBASE_SERVICE_ACCOUNT              — same JSON key as Android workflow
+#   FIREBASE_IOS_APP_ID                   — "1:...:ios:..." from Firebase console
+#   IOS_DIST_CERT_P12_BASE64              — `base64 -i AppleDistribution.p12`
+#   IOS_DIST_CERT_PASSWORD                — password used when exporting the .p12
+#   IOS_ADHOC_PROVISION_PROFILE_BASE64    — `base64 -i CineStream_AdHoc.mobileprovision`
+#   IOS_APPSTORE_PROVISION_PROFILE_BASE64 — required only for the testflight lane
+#   IOS_KEYCHAIN_PASSWORD                 — any random string (unlocks the temp keychain)
+#   APP_STORE_CONNECT_API_KEY_ID          — required only for the testflight lane
+#   APP_STORE_CONNECT_API_ISSUER_ID       — required only for the testflight lane
+#   APP_STORE_CONNECT_API_KEY_CONTENT_BASE64 — `base64 -i AuthKey_XXXX.p8`
+#
+# See CineStream/DISTRIBUTION.md for the full walkthrough.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'android/**'
+      - '.github/workflows/distribute-android.yml'
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: 'Fastlane lane to run'
+        required: true
+        default: 'beta'
+        type: choice
+        options:
+          - beta
+          - simulator
+          - testflight
+
+concurrency:
+  group: ios-distribute
+  cancel-in-progress: false
+
+jobs:
+  distribute:
+    name: Build IPA and upload
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      LANE: ${{ github.event.inputs.lane || 'beta' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Ruby + Bundler
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+          working-directory: '.'
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Install npm dependencies
+        run: npm ci --no-audit --loglevel=error
+
+      - name: Install CocoaPods
+        working-directory: ios
+        run: bundle exec pod install --repo-update
+
+      - name: Generate release notes from git
+        run: |
+          {
+            echo "CineStream iOS — automated build from main"
+            echo ""
+            echo "Latest commit:"
+            git log -1 --pretty=format:"  %h %s%n%n%b"
+          } > RELEASE_NOTES.md
+          echo "----- release notes -----"
+          cat RELEASE_NOTES.md
+          echo "-------------------------"
+
+      - name: Preflight required secrets
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_IOS_APP_ID: ${{ secrets.FIREBASE_IOS_APP_ID }}
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_ADHOC_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_ADHOC_PROVISION_PROFILE_BASE64 }}
+          IOS_APPSTORE_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISION_PROFILE_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT_BASE64 }}
+        run: |
+          set -eu
+          missing=()
+          check() {
+            local name="$1"; local value="$2"
+            if [ -z "$value" ]; then missing+=("$name"); fi
+          }
+          case "$LANE" in
+            beta)
+              check FIREBASE_SERVICE_ACCOUNT               "$FIREBASE_SERVICE_ACCOUNT"
+              check FIREBASE_IOS_APP_ID                    "$FIREBASE_IOS_APP_ID"
+              check IOS_DIST_CERT_P12_BASE64               "$IOS_DIST_CERT_P12_BASE64"
+              check IOS_DIST_CERT_PASSWORD                 "$IOS_DIST_CERT_PASSWORD"
+              check IOS_ADHOC_PROVISION_PROFILE_BASE64     "$IOS_ADHOC_PROVISION_PROFILE_BASE64"
+              ;;
+            simulator)
+              check FIREBASE_SERVICE_ACCOUNT               "$FIREBASE_SERVICE_ACCOUNT"
+              check FIREBASE_IOS_APP_ID                    "$FIREBASE_IOS_APP_ID"
+              ;;
+            testflight)
+              check IOS_DIST_CERT_P12_BASE64               "$IOS_DIST_CERT_P12_BASE64"
+              check IOS_DIST_CERT_PASSWORD                 "$IOS_DIST_CERT_PASSWORD"
+              check IOS_APPSTORE_PROVISION_PROFILE_BASE64  "$IOS_APPSTORE_PROVISION_PROFILE_BASE64"
+              check APP_STORE_CONNECT_API_KEY_ID           "$APP_STORE_CONNECT_API_KEY_ID"
+              check APP_STORE_CONNECT_API_ISSUER_ID        "$APP_STORE_CONNECT_API_ISSUER_ID"
+              check APP_STORE_CONNECT_API_KEY_CONTENT_BASE64 "$APP_STORE_CONNECT_API_KEY_CONTENT_BASE64"
+              ;;
+            *)
+              echo "::error::Unknown lane: $LANE"
+              exit 1
+              ;;
+          esac
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '::error::Missing required secrets for lane "%s":\n' "$LANE"
+            printf '  - %s\n' "${missing[@]}"
+            echo "See CineStream/DISTRIBUTION.md for setup instructions."
+            exit 1
+          fi
+          echo "All required secrets for lane '$LANE' are present."
+
+      - name: Write Firebase service account JSON
+        if: env.LANE != 'testflight'
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: Run fastlane
+        working-directory: ios
+        env:
+          FASTLANE_HIDE_CHANGELOG: 1
+          FASTLANE_SKIP_UPDATE_CHECK: 1
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+          CI: 'true'
+          FIREBASE_IOS_APP_ID: ${{ secrets.FIREBASE_IOS_APP_ID }}
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_ADHOC_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_ADHOC_PROVISION_PROFILE_BASE64 }}
+          IOS_APPSTORE_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISION_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT_BASE64 }}
+        run: bundle exec fastlane ios "$LANE"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-${{ env.LANE }}-${{ github.sha }}
+          path: |
+            ios/fastlane/build/**
+            ios/fastlane/*.log
+          retention-days: 14
+          if-no-files-found: ignore

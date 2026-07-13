@@ -11,7 +11,7 @@ on:
       - '**.md'
       - '.gitignore'
       - 'ios/**'
-      - '.github/**'
+      - '.github/workflows/distribute-ios.yml'
   workflow_dispatch:
 
 # Never run two Android distribute jobs in parallel — Firebase would just
