@@ -16,13 +16,19 @@ require 'tmpdir'
 
 default_platform(:ios)
 
-APP_IDENTIFIER   = 'com.cinestream'
-XCODE_SCHEME     = 'CineStream'
-XCODE_PROJECT    = 'CineStream.xcodeproj'
-XCODE_WORKSPACE  = 'CineStream.xcworkspace'
-BUILD_DIR        = File.expand_path('build', __dir__)
-DERIVED_DATA_DIR = File.expand_path('derived-data', __dir__)
-RELEASE_NOTES    = File.expand_path('../../RELEASE_NOTES.md', __dir__)
+APP_IDENTIFIER        = 'com.cinestream'
+XCODE_SCHEME          = 'CineStream'
+XCODE_PROJECT         = 'CineStream.xcodeproj'
+XCODE_WORKSPACE       = 'CineStream.xcworkspace'
+# Absolute paths — fastlane runs `sh(...)` commands from ios/fastlane/, so
+# relative paths like 'CineStream.xcworkspace' resolve incorrectly. Actions
+# like `build_app` (gym) auto-detect, but raw `sh` calls need the full path.
+IOS_ROOT              = File.expand_path('..', __dir__)
+XCODE_WORKSPACE_PATH  = File.join(IOS_ROOT, XCODE_WORKSPACE)
+XCODE_PROJECT_PATH    = File.join(IOS_ROOT, XCODE_PROJECT)
+BUILD_DIR             = File.expand_path('build', __dir__)
+DERIVED_DATA_DIR      = File.expand_path('derived-data', __dir__)
+RELEASE_NOTES         = File.expand_path('../../RELEASE_NOTES.md', __dir__)
 
 platform :ios do
   before_all do
@@ -86,7 +92,7 @@ platform :ios do
   private_lane :bump_build_number do
     stamp = Time.now.strftime('%Y%m%d%H%M')
     increment_build_number(
-      xcodeproj:    XCODE_PROJECT,
+      xcodeproj:    XCODE_PROJECT_PATH,
       build_number: stamp
     )
     UI.message("CFBundleVersion → #{stamp}")
@@ -111,7 +117,7 @@ platform :ios do
     bump_build_number
 
     build_app(
-      workspace:              XCODE_WORKSPACE,
+      workspace:              XCODE_WORKSPACE_PATH,
       scheme:                 XCODE_SCHEME,
       configuration:          'Release',
       export_method:          'ad-hoc',
@@ -150,7 +156,7 @@ platform :ios do
 
     sh(
       'xcodebuild',
-      '-workspace', XCODE_WORKSPACE,
+      '-workspace', XCODE_WORKSPACE_PATH,
       '-scheme', XCODE_SCHEME,
       '-configuration', 'Release',
       '-sdk', 'iphonesimulator',
@@ -210,7 +216,7 @@ platform :ios do
     )
 
     build_app(
-      workspace:         XCODE_WORKSPACE,
+      workspace:         XCODE_WORKSPACE_PATH,
       scheme:            XCODE_SCHEME,
       configuration:     'Release',
       export_method:     'app-store',

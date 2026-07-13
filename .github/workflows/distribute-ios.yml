@@ -31,11 +31,11 @@ on:
       lane:
         description: 'Fastlane lane to run'
         required: true
-        default: 'beta'
+        default: 'simulator'
         type: choice
         options:
-          - beta
           - simulator
+          - beta
           - testflight
 
 concurrency:
@@ -50,7 +50,12 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     env:
-      LANE: ${{ github.event.inputs.lane || 'beta' }}
+      # Default push builds go through the `simulator` lane because it doesn't
+      # need Apple Developer signing secrets. Once you enrol in Apple Developer
+      # Program and add the IOS_DIST_CERT_* / IOS_ADHOC_PROVISION_PROFILE_*
+      # secrets, flip this default to 'beta' to get real-device builds on every
+      # push. `testflight` is intentionally kept manual-dispatch only.
+      LANE: ${{ github.event.inputs.lane || 'simulator' }}
 
     steps:
       - name: Checkout
