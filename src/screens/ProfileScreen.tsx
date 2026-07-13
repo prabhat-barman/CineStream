@@ -98,9 +98,23 @@ export function ProfileScreen({navigation}: Props) {
   const subscriptionStatus = profile?.subscriptionStatus ?? 'none';
   const isAdmin = user?.role === 'admin';
 
-  const logout = () => {
-    void signOut();
-  };
+  const logout = useCallback(() => {
+    Alert.alert(
+      'Log out?',
+      'You will need to sign in again to access your watchlist, downloads and preferences.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: () => {
+            void signOut();
+          },
+        },
+      ],
+      {cancelable: true},
+    );
+  }, [signOut]);
 
   const openChangePassword = () => {
     navigation.navigate('ChangePassword');
