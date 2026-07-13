@@ -57,6 +57,10 @@ yarn-error.log
 **/fastlane/*.log
 **/fastlane/README.md.bak
 
+# Firebase — iOS config (per-developer; treat like debug.keystore).
+# Each dev downloads their own from console.firebase.google.com.
+ios/CineStream/GoogleService-Info.plist
+
 # Bundle artifact
 *.jsbundle
 
