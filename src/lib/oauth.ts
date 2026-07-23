@@ -68,12 +68,46 @@ export async function signInWithGoogleNative(): Promise<GoogleIdTokenResult> {
   ensureGoogleConfigured();
   await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
 
+  // Google Play Services caches the last account + idToken at the OS level,
+  // and `signIn()` can hand that cached idToken back — often already past
+  // its 1-hour expiry — even on the "first" attempt after a fresh install
+  // when the device previously had this app / package installed. The backend
+  // then rejects it with "token expired". Signing out first forces a fresh
+  // interactive flow so the token is always minted right now.
+  // Refs:
+  //   https://github.com/react-native-google-signin/google-signin/issues/105
+  //   https://github.com/react-native-google-signin/google-signin/issues/926
+  try {
+    await GoogleSignin.signOut();
+  } catch {
+    // best-effort — proceed with signIn regardless.
+  }
+
   try {
     const response = await GoogleSignin.signIn();
     if (!isSuccessResponse(response)) {
       throw new SocialSignInCancelled();
     }
-    const {idToken, user} = response.data;
+    let {idToken} = response.data;
+    const {user} = response.data;
+
+    // Belt-and-braces (Android only): if signIn() still handed back a stale
+    // idToken, clear the cached access token and pull fresh tokens.
+    if (Platform.OS === 'android') {
+      try {
+        const tokens = await GoogleSignin.getTokens();
+        if (tokens.accessToken) {
+          await GoogleSignin.clearCachedAccessToken(tokens.accessToken);
+        }
+        const fresh = await GoogleSignin.getTokens();
+        if (fresh.idToken) {
+          idToken = fresh.idToken;
+        }
+      } catch {
+        // best-effort — fall back to whatever signIn() returned.
+      }
+    }
+
     if (!idToken) {
       throw new Error(
         'Google did not return an ID token. Check your webClientId configuration.',
