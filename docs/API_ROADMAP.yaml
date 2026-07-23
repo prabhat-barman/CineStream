@@ -1,0 +1,1683 @@
+openapi: 3.1.0
+info:
+  title: Vertical / CineStream — Mobile API Roadmap
+  version: 0.1.0-draft
+  description: |
+    Draft contract for endpoints the mobile app needs but that are not yet
+    implemented in the backend. All existing endpoints (auth, /webseries,
+    /episodes, /actors, /notifications, /device-tokens, /mobile-users/profile)
+    are OUT OF SCOPE here — see the live Swagger for those:
+    https://vertical-admin-backend.onrender.com/api-docs
+
+    ## Conventions
+    - Base URL: `https://<host>/api/v1`
+    - Auth: `Authorization: Bearer <accessToken>`
+    - Success envelope: `{ success: true, message?, data, meta? }`
+    - Error envelope:   `{ success: false, message, errors?: [...] }`
+    - Pagination: `?page=1&limit=20` → response `meta: {total, page, limit, totalPages}`
+    - Timestamps: ISO 8601 UTC strings
+    - IDs: Mongo ObjectId strings (24 hex chars)
+
+    ## Roadmap phase mapping
+    - Phase 1 — Home Feed:            /home, /discover/*
+    - Phase 2 — Institute Profile:    /institutes/*
+    - Phase 3 — Web Series Details:   extended /webseries/:id, /webseries/:id/related
+    - Phase 4 — Actor Portfolio:      /actors/:id/filmography, /clips, /upcoming
+    - Phase 5 — Video Player:         /episodes/:id/playback, /watch-progress, /me/continue-watching
+    - Phase 6 — Search:               /search, /search/suggest, /me/search-history
+    - Phase 7 — Discover:             /genres, /discover/*
+    - Phase 8 — Actor Pages:          same as Phase 4 + /actors/:id/followers
+    - Phase 9 — Institute Dashboard:  POST/PATCH/DELETE on /webseries + /episodes + /uploads
+    - Cross-cutting:                  /follow, /reviews, /watchlist, /app/config, /me/preferences
+
+servers:
+  - url: https://vertical-admin-backend.onrender.com/api/v1
+    description: Production (Render)
+  - url: http://localhost:3000/api/v1
+    description: Local dev
+
+security:
+  - bearerAuth: []
+
+tags:
+  - {name: Home,              description: Phase 1 — aggregated home feed}
+  - {name: Institutes,        description: Phase 2 — institute resource + follows}
+  - {name: WebSeries,         description: Phase 3 — extended web series shape}
+  - {name: Actors,            description: Phase 4 & 8 — portfolio, filmography, clips, upcoming, follows}
+  - {name: Playback,          description: Phase 5 — signed streaming URLs + heartbeat}
+  - {name: WatchProgress,     description: Phase 5 — continue watching + watch history}
+  - {name: Watchlist,         description: Watchlist CRUD}
+  - {name: Search,            description: Phase 6 — multi-entity search + history + suggest}
+  - {name: Discover,          description: Phase 7 — genres + curated rails}
+  - {name: Reviews,           description: Ratings + reviews on web series}
+  - {name: Uploads,           description: Phase 9 — presigned upload flow}
+  - {name: Preferences,       description: User playback + notification preferences}
+  - {name: Subscriptions,     description: Plans + billing (Razorpay)}
+  - {name: Config,            description: App-wide config + force upgrade}
+
+paths:
+  # ==========================================================================
+  # Phase 1 — HOME FEED
+  # ==========================================================================
+  /home:
+    get:
+      tags: [Home]
+      summary: Aggregated home feed for signed-in mobile user
+      description: |
+        Single call that composes every rail on the mobile home screen so the
+        client renders in one round trip. Personalized sections (`continueWatching`,
+        `recommendations`) are only included for authenticated callers.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeFeedResponse'
+        '429': {$ref: '#/components/responses/RateLimited'}
+
+  # ==========================================================================
+  # Phase 2 — INSTITUTES
+  # ==========================================================================
+  /institutes:
+    get:
+      tags: [Institutes]
+      summary: List institutes
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+        - in: query
+          name: search
+          schema: {type: string}
+        - in: query
+          name: sort
+          schema: {type: string, enum: [followers, recent, name, webseriesCount]}
+        - in: query
+          name: city
+          schema: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/InstituteSummary'}}
+
+  /institutes/{id}:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Institutes]
+      summary: Get full institute profile
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstituteResponse'
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /institutes/{id}/webseries:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Institutes]
+      summary: Web series published by this institute
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+        - in: query
+          name: status
+          schema: {$ref: '#/components/schemas/WebseriesStatus'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Webseries'}}
+
+  /institutes/{id}/students:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Institutes]
+      summary: Enrolled/active students (actors) of this institute
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Actor'}}
+
+  /institutes/{id}/follow:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    post:
+      tags: [Institutes]
+      summary: Follow this institute
+      responses:
+        '200': {$ref: '#/components/responses/FollowState'}
+    delete:
+      tags: [Institutes]
+      summary: Unfollow this institute
+      responses:
+        '200': {$ref: '#/components/responses/FollowState'}
+
+  /institutes/{id}/followers:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Institutes]
+      summary: Paginated followers of this institute
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/FollowerUser'}}
+
+  # ==========================================================================
+  # Phase 3 — WEBSERIES (extensions to existing resource)
+  # ==========================================================================
+  /webseries/{id}/related:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [WebSeries]
+      summary: Related web series (same genre / institute / cast overlap)
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebseriesListResponse'
+
+  /webseries/{id}/trailer:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [WebSeries]
+      summary: Signed trailer stream URL
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/Trailer'}
+
+  # ==========================================================================
+  # Phase 4 & 8 — ACTORS (extensions)
+  # ==========================================================================
+  /actors/{id}/filmography:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Actors]
+      summary: Auto-generated filmography (every web series this actor appears in)
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebseriesListResponse'
+
+  /actors/{id}/clips:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Actors]
+      summary: Short acting clips extracted from episodes this actor appeared in
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/ActingClip'}}
+
+  /actors/{id}/upcoming:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Actors]
+      summary: Upcoming projects (webseries in APPROVED/IN_REVIEW status)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebseriesListResponse'
+
+  /actors/{id}/follow:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    post:
+      tags: [Actors]
+      summary: Follow this actor
+      responses:
+        '200': {$ref: '#/components/responses/FollowState'}
+    delete:
+      tags: [Actors]
+      summary: Unfollow this actor
+      responses:
+        '200': {$ref: '#/components/responses/FollowState'}
+
+  /actors/{id}/followers:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Actors]
+      summary: Paginated followers of this actor
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/FollowerUser'}}
+
+  /me/following/actors:
+    get:
+      tags: [Actors]
+      summary: Actors the current user follows
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Actor'}}
+
+  /me/following/institutes:
+    get:
+      tags: [Institutes]
+      summary: Institutes the current user follows
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/InstituteSummary'}}
+
+  # ==========================================================================
+  # Phase 5 — VIDEO PLAYER
+  # ==========================================================================
+  /episodes/{id}/playback:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Playback]
+      summary: Signed playback manifest (HLS/DASH) + tracks + DRM + skip markers
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/PlaybackManifest'}
+        '402':
+          description: Premium content — user has no active subscription
+        '403':
+          description: Content not available in caller's region
+
+  /playback/heartbeat:
+    post:
+      tags: [Playback]
+      summary: Periodic player heartbeat (concurrency limit + analytics)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HeartbeatRequest'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      allowed: {type: boolean, description: false = another device booted this session}
+
+  /watch-progress:
+    post:
+      tags: [WatchProgress]
+      summary: Persist current playback position for an episode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/WatchProgressUpsert'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/WatchProgress'}
+
+  /watch-progress/{episodeId}:
+    parameters:
+      - in: path
+        name: episodeId
+        required: true
+        schema: {type: string}
+    get:
+      tags: [WatchProgress]
+      summary: Read current progress for a specific episode
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/WatchProgress'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /me/continue-watching:
+    get:
+      tags: [WatchProgress]
+      summary: Rows for the "Continue Watching" rail on Home
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/ContinueWatchingItem'}
+
+  /me/watch-history:
+    get:
+      tags: [WatchProgress]
+      summary: Full watch history (paginated, most-recent first)
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/WatchHistoryItem'}}
+  /me/watch-history/{id}:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    delete:
+      tags: [WatchProgress]
+      summary: Remove a single row from history
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  # ==========================================================================
+  # WATCHLIST
+  # ==========================================================================
+  /me/watchlist:
+    get:
+      tags: [Watchlist]
+      summary: List titles the user has bookmarked
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebseriesListResponse'
+    post:
+      tags: [Watchlist]
+      summary: Add a web series to watchlist (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webSeriesId]
+              properties:
+                webSeriesId: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+  /me/watchlist/{webSeriesId}:
+    parameters:
+      - in: path
+        name: webSeriesId
+        required: true
+        schema: {type: string}
+    delete:
+      tags: [Watchlist]
+      summary: Remove a web series from watchlist
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  # ==========================================================================
+  # Phase 6 — SEARCH
+  # ==========================================================================
+  /search:
+    get:
+      tags: [Search]
+      summary: Multi-entity search across web series, actors, institutes, genres
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: {type: string, minLength: 1}
+        - in: query
+          name: type
+          schema: {type: string, enum: [all, webseries, actor, institute, genre], default: all}
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/SearchResult'}
+
+  /search/suggest:
+    get:
+      tags: [Search]
+      summary: Autocomplete suggestions (top few across entities)
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/SearchSuggestion'}
+
+  /me/search-history:
+    get:
+      tags: [Search]
+      summary: List recent searches
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/SearchHistoryItem'}
+    post:
+      tags: [Search]
+      summary: Record a search query into history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+    delete:
+      tags: [Search]
+      summary: Clear all search history
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+  /me/search-history/{id}:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    delete:
+      tags: [Search]
+      summary: Delete a single search history row
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  # ==========================================================================
+  # Phase 7 — DISCOVER
+  # ==========================================================================
+  /genres:
+    get:
+      tags: [Discover]
+      summary: List all genres/categories (drives Discover chips)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/Genre'}
+
+  /genres/{slug}/webseries:
+    parameters:
+      - in: path
+        name: slug
+        required: true
+        schema: {type: string}
+    get:
+      tags: [Discover]
+      summary: All web series for a given genre
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+        - in: query
+          name: sort
+          schema: {type: string, enum: [trending, newest, rating]}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebseriesListResponse'
+
+  /discover/trending:
+    get:
+      tags: [Discover]
+      summary: Trending rail (7-day window)
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebseriesListResponse'}
+
+  /discover/college-stories:
+    get:
+      tags: [Discover]
+      summary: Curated “College Stories” rail
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebseriesListResponse'}
+
+  /discover/short-films:
+    get:
+      tags: [Discover]
+      summary: Curated short films rail (single-episode or duration ≤ 30 min)
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WebseriesListResponse'}
+
+  # ==========================================================================
+  # REVIEWS + RATINGS
+  # ==========================================================================
+  /webseries/{id}/rate:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    post:
+      tags: [Reviews]
+      summary: Submit or update the caller's star rating (1-5)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stars]
+              properties:
+                stars: {type: integer, minimum: 1, maximum: 5}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/RatingSummary'}
+    delete:
+      tags: [Reviews]
+      summary: Remove the caller's rating
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  /webseries/{id}/reviews:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    get:
+      tags: [Reviews]
+      summary: Paginated reviews
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/Limit'}
+        - in: query
+          name: sort
+          schema: {type: string, enum: [recent, helpful, stars_desc, stars_asc]}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PaginatedEnvelope'
+                  - type: object
+                    properties:
+                      data: {type: array, items: {$ref: '#/components/schemas/Review'}}
+    post:
+      tags: [Reviews]
+      summary: Post a review (creates a rating too if caller hasn't rated yet)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, minLength: 1, maxLength: 5000}
+                stars: {type: integer, minimum: 1, maximum: 5}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/Review'}
+
+  /reviews/{id}:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    patch:
+      tags: [Reviews]
+      summary: Edit the caller's own review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: {type: string}
+                stars: {type: integer, minimum: 1, maximum: 5}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/Review'}
+    delete:
+      tags: [Reviews]
+      summary: Delete the caller's own review
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  /reviews/{id}/helpful:
+    parameters: [{$ref: '#/components/parameters/IdPath'}]
+    post:
+      tags: [Reviews]
+      summary: Mark a review as helpful (idempotent)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      helpfulCount: {type: integer}
+                      isHelpful: {type: boolean}
+    delete:
+      tags: [Reviews]
+      summary: Remove helpful vote
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageResponse'}
+
+  # ==========================================================================
+  # Phase 9 — INSTITUTE DASHBOARD (writes on webseries/episodes) + UPLOADS
+  # ==========================================================================
+  /uploads/presign:
+    post:
+      tags: [Uploads]
+      summary: Presigned S3-compatible upload URL for large assets (poster, banner, trailer, episode)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, contentType]
+              properties:
+                purpose:
+                  type: string
+                  enum: [webseries_poster, webseries_cover, webseries_trailer, episode_video, actor_photo, institute_logo, institute_cover, avatar]
+                contentType: {type: string, example: video/mp4}
+                fileSize: {type: integer, description: bytes}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/PresignedUpload'}
+
+  /uploads/confirm:
+    post:
+      tags: [Uploads]
+      summary: Notify backend after client has finished uploading to the presigned URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, purpose]
+              properties:
+                key: {type: string, description: same key returned by /uploads/presign}
+                purpose: {type: string}
+                resourceId:
+                  type: string
+                  description: id of the webseries / episode / actor this upload attaches to
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: object
+                    properties:
+                      url: {type: string}
+
+  # NOTE: /webseries POST/PATCH/DELETE and /episodes POST/PATCH/DELETE are
+  # backend-admin surface — the mobile Institute Dashboard would go through
+  # the same endpoints (with instituteId scoping enforced server-side). We
+  # keep them out of this draft to avoid re-specifying admin routes that
+  # already exist in the main Swagger.
+
+  # ==========================================================================
+  # PREFERENCES
+  # ==========================================================================
+  /me/preferences:
+    get:
+      tags: [Preferences]
+      summary: Playback + UI preferences for the current user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/UserPreferences'}
+    put:
+      tags: [Preferences]
+      summary: Update preferences (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserPreferences'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/UserPreferences'}
+
+  /notifications/preferences:
+    get:
+      tags: [Preferences]
+      summary: Per-type notification toggles
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/NotificationPreferences'}
+    put:
+      tags: [Preferences]
+      summary: Update notification toggles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationPreferences'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/NotificationPreferences'}
+
+  # ==========================================================================
+  # SUBSCRIPTIONS (Razorpay)
+  # ==========================================================================
+  /subscriptions/plans:
+    get:
+      tags: [Subscriptions]
+      summary: Public list of subscription plans
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: array
+                    items: {$ref: '#/components/schemas/SubscriptionPlan'}
+
+  /subscriptions/my:
+    get:
+      tags: [Subscriptions]
+      summary: Current user's active subscription (if any)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/UserSubscription'}
+
+  /subscriptions/checkout:
+    post:
+      tags: [Subscriptions]
+      summary: Create a Razorpay order for a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [planId]
+              properties:
+                planId: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/CheckoutSession'}
+
+  /subscriptions/verify:
+    post:
+      tags: [Subscriptions]
+      summary: Verify Razorpay payment signature (called after checkout)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [razorpayOrderId, razorpayPaymentId, razorpaySignature]
+              properties:
+                razorpayOrderId: {type: string}
+                razorpayPaymentId: {type: string}
+                razorpaySignature: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/UserSubscription'}
+
+  /subscriptions/cancel:
+    post:
+      tags: [Subscriptions]
+      summary: Cancel active subscription (keeps access until period end)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/UserSubscription'}
+
+  # ==========================================================================
+  # APP CONFIG
+  # ==========================================================================
+  /app/config:
+    get:
+      tags: [Config]
+      summary: Force-upgrade flags, maintenance banner, feature toggles
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  data: {$ref: '#/components/schemas/AppConfig'}
+
+# ==========================================================================
+# COMPONENTS
+# ==========================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema: {type: string}
+    Page:
+      in: query
+      name: page
+      schema: {type: integer, minimum: 1, default: 1}
+    Limit:
+      in: query
+      name: limit
+      schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After: {schema: {type: integer}, description: seconds until retry allowed}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorEnvelope'}
+    FollowState:
+      description: Current follow state after the mutation
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success: {type: boolean}
+              data:
+                type: object
+                properties:
+                  isFollowing: {type: boolean}
+                  followersCount: {type: integer}
+
+  schemas:
+    # ---- envelopes ----
+    ErrorEnvelope:
+      type: object
+      required: [success, message]
+      properties:
+        success: {type: boolean, enum: [false]}
+        message: {type: string}
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              message: {type: string}
+              field: {type: string}
+              constraints:
+                oneOf:
+                  - {type: array, items: {type: string}}
+                  - {type: object, additionalProperties: {type: string}}
+    PageMeta:
+      type: object
+      required: [total, page, limit, totalPages]
+      properties:
+        total: {type: integer}
+        page: {type: integer}
+        limit: {type: integer}
+        totalPages: {type: integer}
+    PaginatedEnvelope:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        data: {type: array}
+        meta: {$ref: '#/components/schemas/PageMeta'}
+    MessageResponse:
+      type: object
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        data:
+          type: object
+          properties:
+            message: {type: string}
+
+    # ---- primitives from existing api ----
+    WebseriesStatus:
+      type: string
+      enum: [DRAFT, SUBMITTED, IN_REVIEW, APPROVED, REJECTED, PUBLISHED, ARCHIVED]
+    EpisodeStatus:
+      type: string
+      enum: [PENDING, PROCESSING, COMPLETED, FAILED]
+
+    Webseries:
+      # Extended: existing fields + trailer/institute/rating summary
+      type: object
+      required: [_id, title, status]
+      properties:
+        _id: {type: string}
+        title: {type: string}
+        description: {type: string}
+        thumbnail: {type: string}
+        coverImage: {type: string}
+        language: {type: string}
+        ageRating: {type: string}
+        genres: {type: array, items: {type: string}}
+        tags: {type: array, items: {type: string}}
+        isPremium: {type: boolean}
+        totalEpisodes: {type: integer}
+        status: {$ref: '#/components/schemas/WebseriesStatus'}
+        releaseDate: {type: string, format: date-time}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+        # NEW below
+        trailerUrl: {type: string}
+        trailerThumb: {type: string}
+        duration: {type: integer, description: total runtime in seconds}
+        instituteId: {type: string}
+        institute: {$ref: '#/components/schemas/InstituteSummary'}
+        cast:
+          type: array
+          items: {$ref: '#/components/schemas/Actor'}
+        averageRating: {type: number, format: float, minimum: 0, maximum: 5}
+        ratingsCount: {type: integer}
+        reviewsCount: {type: integer}
+        followersCount: {type: integer}
+        isInWatchlist: {type: boolean}
+        userRating: {type: integer, minimum: 1, maximum: 5}
+    WebseriesListResponse:
+      allOf:
+        - $ref: '#/components/schemas/PaginatedEnvelope'
+        - type: object
+          properties:
+            data: {type: array, items: {$ref: '#/components/schemas/Webseries'}}
+
+    Actor:
+      type: object
+      required: [_id, name]
+      properties:
+        _id: {type: string}
+        name: {type: string}
+        bio: {type: string}
+        photo: {type: string}
+        gallery: {type: array, items: {type: string}}
+        skills: {type: array, items: {type: string}}
+        socialLinks:
+          type: object
+          additionalProperties: {type: string}
+        # NEW below
+        city: {type: string}
+        age: {type: integer}
+        gender: {type: string, enum: [male, female, other, prefer_not_to_say]}
+        instituteId: {type: string}
+        institute: {$ref: '#/components/schemas/InstituteSummary'}
+        followersCount: {type: integer}
+        isFollowing: {type: boolean}
+        filmographyCount: {type: integer}
+
+    ActingClip:
+      type: object
+      required: [id, videoUrl]
+      properties:
+        id: {type: string}
+        title: {type: string}
+        videoUrl: {type: string}
+        thumbnail: {type: string}
+        durationSec: {type: integer}
+        webSeriesId: {type: string}
+        episodeId: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    # ---- institutes ----
+    InstituteSummary:
+      type: object
+      required: [id, name]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        slug: {type: string}
+        logo: {type: string}
+        city: {type: string}
+        followersCount: {type: integer}
+        webseriesCount: {type: integer}
+    Institute:
+      allOf:
+        - $ref: '#/components/schemas/InstituteSummary'
+        - type: object
+          properties:
+            coverImage: {type: string}
+            description: {type: string}
+            location:
+              type: object
+              properties:
+                city: {type: string}
+                state: {type: string}
+                country: {type: string}
+            website: {type: string}
+            foundedYear: {type: integer}
+            totalStudents: {type: integer}
+            isFollowing: {type: boolean}
+            featuredWebseries:
+              type: array
+              items: {$ref: '#/components/schemas/Webseries'}
+    InstituteResponse:
+      type: object
+      properties:
+        success: {type: boolean}
+        data: {$ref: '#/components/schemas/Institute'}
+
+    FollowerUser:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        avatarUrl: {type: string}
+        followedAt: {type: string, format: date-time}
+
+    # ---- trailer / playback ----
+    Trailer:
+      type: object
+      properties:
+        hlsUrl: {type: string}
+        mp4Url: {type: string}
+        thumbnail: {type: string}
+        durationSec: {type: integer}
+    PlaybackManifest:
+      type: object
+      required: [hlsUrl, durationSec]
+      properties:
+        hlsUrl: {type: string, description: signed HLS playlist}
+        dashUrl: {type: string}
+        drm:
+          type: object
+          properties:
+            widevineLicenseUrl: {type: string}
+            fairplayLicenseUrl: {type: string}
+            fairplayCertificateUrl: {type: string}
+        subtitles:
+          type: array
+          items:
+            type: object
+            properties:
+              lang: {type: string, example: en}
+              label: {type: string, example: English}
+              url: {type: string}
+              default: {type: boolean}
+        audioTracks:
+          type: array
+          items:
+            type: object
+            properties:
+              lang: {type: string}
+              label: {type: string}
+              default: {type: boolean}
+        qualities:
+          type: array
+          description: Optional variant hints; player usually reads these from the HLS manifest.
+          items:
+            type: object
+            properties:
+              label: {type: string, enum: [4K, 1080p, 720p, 480p, 360p, Auto]}
+              bitrate: {type: integer}
+              width: {type: integer}
+              height: {type: integer}
+        skipIntro:
+          type: object
+          properties:
+            startSec: {type: number}
+            endSec: {type: number}
+        skipCredits:
+          type: object
+          properties:
+            startSec: {type: number}
+            endSec: {type: number}
+        nextEpisodeId: {type: string}
+        durationSec: {type: number}
+        adBreaks:
+          type: array
+          items:
+            type: object
+            properties:
+              atSec: {type: number}
+              vastUrl: {type: string}
+        sessionId: {type: string, description: pass into /playback/heartbeat}
+
+    HeartbeatRequest:
+      type: object
+      required: [sessionId, episodeId, positionSec]
+      properties:
+        sessionId: {type: string}
+        episodeId: {type: string}
+        positionSec: {type: number}
+        bufferedSec: {type: number}
+        playbackState: {type: string, enum: [playing, paused, buffering, ended]}
+
+    # ---- watch progress / history ----
+    WatchProgressUpsert:
+      type: object
+      required: [episodeId, positionSec, durationSec]
+      properties:
+        episodeId: {type: string}
+        positionSec: {type: number}
+        durationSec: {type: number}
+        completed: {type: boolean}
+    WatchProgress:
+      type: object
+      properties:
+        episodeId: {type: string}
+        webSeriesId: {type: string}
+        positionSec: {type: number}
+        durationSec: {type: number}
+        completed: {type: boolean}
+        updatedAt: {type: string, format: date-time}
+    ContinueWatchingItem:
+      type: object
+      properties:
+        webseries: {$ref: '#/components/schemas/Webseries'}
+        episode:
+          type: object
+          properties:
+            id: {type: string}
+            title: {type: string}
+            episodeNumber: {type: integer}
+            thumbnail: {type: string}
+            durationSec: {type: number}
+        progress: {$ref: '#/components/schemas/WatchProgress'}
+    WatchHistoryItem:
+      allOf:
+        - $ref: '#/components/schemas/ContinueWatchingItem'
+        - type: object
+          properties:
+            watchedAt: {type: string, format: date-time}
+
+    # ---- search ----
+    SearchResult:
+      type: object
+      properties:
+        query: {type: string}
+        webseries:
+          type: array
+          items: {$ref: '#/components/schemas/Webseries'}
+        actors:
+          type: array
+          items: {$ref: '#/components/schemas/Actor'}
+        institutes:
+          type: array
+          items: {$ref: '#/components/schemas/InstituteSummary'}
+        genres:
+          type: array
+          items: {$ref: '#/components/schemas/Genre'}
+    SearchSuggestion:
+      type: object
+      properties:
+        type: {type: string, enum: [webseries, actor, institute, genre]}
+        id: {type: string}
+        label: {type: string}
+        subtitle: {type: string}
+        thumbnail: {type: string}
+    SearchHistoryItem:
+      type: object
+      properties:
+        id: {type: string}
+        query: {type: string}
+        createdAt: {type: string, format: date-time}
+
+    # ---- discover ----
+    Genre:
+      type: object
+      properties:
+        id: {type: string}
+        slug: {type: string}
+        name: {type: string}
+        icon: {type: string}
+        coverImage: {type: string}
+        webseriesCount: {type: integer}
+
+    # ---- home aggregator ----
+    HomeFeedResponse:
+      type: object
+      properties:
+        success: {type: boolean}
+        data:
+          type: object
+          properties:
+            featuredBanner:
+              oneOf:
+                - {$ref: '#/components/schemas/Webseries'}
+                - {type: 'null'}
+            trending:
+              type: array
+              items: {$ref: '#/components/schemas/Webseries'}
+            recentlyReleased:
+              type: array
+              items: {$ref: '#/components/schemas/Webseries'}
+            popularInstitutes:
+              type: array
+              items: {$ref: '#/components/schemas/InstituteSummary'}
+            newActors:
+              type: array
+              items: {$ref: '#/components/schemas/Actor'}
+            categories:
+              type: array
+              items: {$ref: '#/components/schemas/Genre'}
+            continueWatching:
+              type: array
+              items: {$ref: '#/components/schemas/ContinueWatchingItem'}
+            recommendations:
+              type: array
+              items: {$ref: '#/components/schemas/Webseries'}
+
+    # ---- reviews ----
+    RatingSummary:
+      type: object
+      properties:
+        averageRating: {type: number, format: float}
+        ratingsCount: {type: integer}
+        userRating: {type: integer, minimum: 1, maximum: 5}
+        distribution:
+          type: object
+          description: count of ratings per star bucket
+          additionalProperties: {type: integer}
+    Review:
+      type: object
+      properties:
+        id: {type: string}
+        webSeriesId: {type: string}
+        author:
+          type: object
+          properties:
+            id: {type: string}
+            name: {type: string}
+            avatarUrl: {type: string}
+        text: {type: string}
+        stars: {type: integer, minimum: 1, maximum: 5}
+        helpfulCount: {type: integer}
+        isHelpful: {type: boolean}
+        isOwner: {type: boolean}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+
+    # ---- uploads ----
+    PresignedUpload:
+      type: object
+      required: [uploadUrl, key, expiresAt]
+      properties:
+        uploadUrl: {type: string, description: PUT-uploadable presigned URL}
+        key: {type: string, description: opaque object key — echo back to /uploads/confirm}
+        headers:
+          type: object
+          additionalProperties: {type: string}
+        expiresAt: {type: string, format: date-time}
+        maxBytes: {type: integer}
+
+    # ---- preferences ----
+    UserPreferences:
+      type: object
+      properties:
+        preferredQuality: {type: string, enum: [Auto, 4K, 1080p, 720p, 480p, 360p]}
+        downloadQuality: {type: string, enum: [1080p, 720p, 480p, 360p]}
+        downloadsOverWifiOnly: {type: boolean}
+        autoplayNext: {type: boolean}
+        autoplayPreviews: {type: boolean}
+        subtitleLang: {type: string, description: BCP-47 tag}
+        audioLang: {type: string}
+        dataSaver: {type: boolean}
+    NotificationPreferences:
+      type: object
+      properties:
+        pushEnabled: {type: boolean}
+        emailEnabled: {type: boolean}
+        types:
+          type: object
+          properties:
+            new_release: {type: boolean}
+            recommendation: {type: boolean}
+            reminder: {type: boolean}
+            trending: {type: boolean}
+            subscription: {type: boolean}
+            content_approval: {type: boolean}
+            general: {type: boolean}
+
+    # ---- subscription ----
+    SubscriptionPlan:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        priceMinor: {type: integer, description: price in paise/cents}
+        currency: {type: string, example: INR}
+        interval: {type: string, enum: [month, year]}
+        perks:
+          type: array
+          items: {type: string}
+        highlighted: {type: boolean}
+    UserSubscription:
+      type: object
+      properties:
+        planId: {type: string}
+        status: {type: string, enum: [none, active, cancelled, past_due, expired, trialing]}
+        currentPeriodStart: {type: string, format: date-time}
+        currentPeriodEnd: {type: string, format: date-time}
+        willRenew: {type: boolean}
+        provider: {type: string, enum: [razorpay, stripe, apple, google]}
+    CheckoutSession:
+      type: object
+      properties:
+        orderId: {type: string}
+        razorpayKeyId: {type: string}
+        amountMinor: {type: integer}
+        currency: {type: string}
+        prefill:
+          type: object
+          properties:
+            name: {type: string}
+            email: {type: string}
+            contact: {type: string}
+
+    # ---- app config ----
+    AppConfig:
+      type: object
+      properties:
+        minSupportedVersion:
+          type: object
+          properties:
+            ios: {type: string}
+            android: {type: string}
+        latestVersion:
+          type: object
+          properties:
+            ios: {type: string}
+            android: {type: string}
+        forceUpgrade: {type: boolean}
+        maintenance:
+          type: object
+          properties:
+            enabled: {type: boolean}
+            message: {type: string}
+        featureFlags:
+          type: object
+          additionalProperties: {type: boolean}
