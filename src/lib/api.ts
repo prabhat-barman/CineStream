@@ -161,6 +161,19 @@ export type Webseries = {
   createdAt?: string;
   updatedAt?: string;
   cast?: Actor[]; // populated on /webseries/:id
+  // Roadmap fields (Phase 2/3). All optional so existing screens keep working
+  // even before the backend starts emitting them.
+  trailerUrl?: string;
+  trailerThumb?: string;
+  duration?: number; // total runtime in seconds
+  instituteId?: string;
+  institute?: InstituteSummary; // populated on detail / list endpoints
+  averageRating?: number;
+  ratingsCount?: number;
+  reviewsCount?: number;
+  followersCount?: number;
+  isInWatchlist?: boolean;
+  userRating?: number; // caller's own star rating, 1-5
 };
 
 export type EpisodeStatus =
@@ -191,6 +204,15 @@ export type Actor = {
   socialLinks?: Record<string, string>;
   gallery?: string[];
   skills?: string[];
+  // Roadmap fields (Phase 4 & 8).
+  city?: string;
+  age?: number;
+  gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+  instituteId?: string;
+  institute?: InstituteSummary;
+  followersCount?: number;
+  isFollowing?: boolean;
+  filmographyCount?: number;
 };
 
 // ------------------------------
@@ -257,6 +279,328 @@ export type PageMeta = {
 export type Paginated<T> = {
   data: T[];
   meta: PageMeta;
+};
+
+// ------------------------------
+// Roadmap types (Phase 1-9) — spec: docs/API_ROADMAP.yaml
+// Kept optional / additive so existing screens keep compiling until the
+// matching endpoints ship. See docs/API_ROADMAP.yaml for the full contract.
+// ------------------------------
+
+// ---- Institutes (Phase 2) ----
+export type InstituteSummary = {
+  id: string;
+  name: string;
+  slug?: string;
+  logo?: string;
+  city?: string;
+  followersCount?: number;
+  webseriesCount?: number;
+};
+
+export type Institute = InstituteSummary & {
+  coverImage?: string;
+  description?: string;
+  location?: {
+    city?: string;
+    state?: string;
+    country?: string;
+  };
+  website?: string;
+  foundedYear?: number;
+  totalStudents?: number;
+  isFollowing?: boolean;
+  featuredWebseries?: Webseries[];
+};
+
+export type FollowState = {
+  isFollowing: boolean;
+  followersCount: number;
+};
+
+export type FollowerUser = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  followedAt: string;
+};
+
+// ---- Actors extras (Phase 4/8) ----
+export type ActingClip = {
+  id: string;
+  title?: string;
+  videoUrl: string;
+  thumbnail?: string;
+  durationSec?: number;
+  webSeriesId?: string;
+  episodeId?: string;
+  createdAt?: string;
+};
+
+// ---- Playback (Phase 5) ----
+export type PlaybackQualityLabel =
+  | '4K'
+  | '1080p'
+  | '720p'
+  | '480p'
+  | '360p'
+  | 'Auto';
+
+export type PlaybackSubtitle = {
+  lang: string; // BCP-47
+  label: string;
+  url: string;
+  default?: boolean;
+};
+
+export type PlaybackAudioTrack = {
+  lang: string;
+  label: string;
+  default?: boolean;
+};
+
+export type PlaybackQualityHint = {
+  label: PlaybackQualityLabel;
+  bitrate?: number;
+  width?: number;
+  height?: number;
+};
+
+export type PlaybackSkipMarker = {
+  startSec: number;
+  endSec: number;
+};
+
+export type PlaybackAdBreak = {
+  atSec: number;
+  vastUrl: string;
+};
+
+export type PlaybackManifest = {
+  hlsUrl: string;
+  dashUrl?: string;
+  drm?: {
+    widevineLicenseUrl?: string;
+    fairplayLicenseUrl?: string;
+    fairplayCertificateUrl?: string;
+  };
+  subtitles?: PlaybackSubtitle[];
+  audioTracks?: PlaybackAudioTrack[];
+  qualities?: PlaybackQualityHint[];
+  skipIntro?: PlaybackSkipMarker;
+  skipCredits?: PlaybackSkipMarker;
+  nextEpisodeId?: string;
+  durationSec: number;
+  adBreaks?: PlaybackAdBreak[];
+  sessionId?: string;
+};
+
+export type Trailer = {
+  hlsUrl?: string;
+  mp4Url?: string;
+  thumbnail?: string;
+  durationSec?: number;
+};
+
+export type HeartbeatState = 'playing' | 'paused' | 'buffering' | 'ended';
+
+export type HeartbeatRequest = {
+  sessionId: string;
+  episodeId: string;
+  positionSec: number;
+  bufferedSec?: number;
+  playbackState?: HeartbeatState;
+};
+
+// ---- Watch progress / history (Phase 5) ----
+export type WatchProgress = {
+  episodeId: string;
+  webSeriesId: string;
+  positionSec: number;
+  durationSec: number;
+  completed: boolean;
+  updatedAt: string;
+};
+
+export type WatchProgressUpsert = {
+  episodeId: string;
+  positionSec: number;
+  durationSec: number;
+  completed?: boolean;
+};
+
+export type ContinueWatchingItem = {
+  webseries: Webseries;
+  episode: {
+    id: string;
+    title: string;
+    episodeNumber: number;
+    thumbnail?: string;
+    durationSec?: number;
+  };
+  progress: WatchProgress;
+};
+
+export type WatchHistoryItem = ContinueWatchingItem & {
+  watchedAt: string;
+};
+
+// ---- Search (Phase 6) ----
+export type SearchEntityType = 'webseries' | 'actor' | 'institute' | 'genre';
+
+export type SearchResult = {
+  query: string;
+  webseries: Webseries[];
+  actors: Actor[];
+  institutes: InstituteSummary[];
+  genres: Genre[];
+};
+
+export type SearchSuggestion = {
+  type: SearchEntityType;
+  id: string;
+  label: string;
+  subtitle?: string;
+  thumbnail?: string;
+};
+
+export type SearchHistoryItem = {
+  id: string;
+  query: string;
+  createdAt: string;
+};
+
+// ---- Discover / Genres (Phase 7) ----
+export type Genre = {
+  id: string;
+  slug: string;
+  name: string;
+  icon?: string;
+  coverImage?: string;
+  webseriesCount?: number;
+};
+
+// ---- Home aggregator (Phase 1) ----
+export type HomeFeed = {
+  featuredBanner: Webseries | null;
+  trending: Webseries[];
+  recentlyReleased: Webseries[];
+  popularInstitutes: InstituteSummary[];
+  newActors: Actor[];
+  categories: Genre[];
+  continueWatching?: ContinueWatchingItem[];
+  recommendations?: Webseries[];
+};
+
+// ---- Reviews / Ratings ----
+export type RatingSummary = {
+  averageRating: number;
+  ratingsCount: number;
+  userRating?: number;
+  distribution?: Record<string, number>;
+};
+
+export type Review = {
+  id: string;
+  webSeriesId: string;
+  author: {
+    id: string;
+    name: string;
+    avatarUrl?: string;
+  };
+  text: string;
+  stars: number;
+  helpfulCount: number;
+  isHelpful: boolean;
+  isOwner: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// ---- Uploads (Phase 9) ----
+export type UploadPurpose =
+  | 'webseries_poster'
+  | 'webseries_cover'
+  | 'webseries_trailer'
+  | 'episode_video'
+  | 'actor_photo'
+  | 'institute_logo'
+  | 'institute_cover'
+  | 'avatar';
+
+export type PresignedUpload = {
+  uploadUrl: string;
+  key: string;
+  headers?: Record<string, string>;
+  expiresAt: string;
+  maxBytes?: number;
+};
+
+// ---- Preferences ----
+export type UserPreferences = {
+  preferredQuality?: PlaybackQualityLabel;
+  downloadQuality?: Exclude<PlaybackQualityLabel, '4K' | 'Auto'>;
+  downloadsOverWifiOnly?: boolean;
+  autoplayNext?: boolean;
+  autoplayPreviews?: boolean;
+  subtitleLang?: string;
+  audioLang?: string;
+  dataSaver?: boolean;
+};
+
+export type NotificationPreferences = {
+  pushEnabled: boolean;
+  emailEnabled: boolean;
+  types: Partial<Record<NotificationType, boolean>>;
+};
+
+// ---- Subscriptions ----
+export type SubscriptionPlanTier = {
+  id: string;
+  name: string;
+  priceMinor: number; // paise / cents
+  currency: string;
+  interval: 'month' | 'year';
+  perks: string[];
+  highlighted?: boolean;
+};
+
+export type SubscriptionStatus =
+  | 'none'
+  | 'active'
+  | 'cancelled'
+  | 'past_due'
+  | 'expired'
+  | 'trialing';
+
+export type UserSubscription = {
+  planId: string | null;
+  status: SubscriptionStatus;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  willRenew: boolean;
+  provider?: 'razorpay' | 'stripe' | 'apple' | 'google';
+};
+
+export type CheckoutSession = {
+  orderId: string;
+  razorpayKeyId: string;
+  amountMinor: number;
+  currency: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
+};
+
+// ---- App config ----
+export type AppConfig = {
+  minSupportedVersion: {ios?: string; android?: string};
+  latestVersion: {ios?: string; android?: string};
+  forceUpgrade: boolean;
+  maintenance: {enabled: boolean; message?: string};
+  featureFlags: Record<string, boolean>;
 };
 
 // ------------------------------
@@ -1034,6 +1378,709 @@ export const api = {
         `/device-tokens/${encodeURIComponent(input.deviceToken)}`,
         {method: 'DELETE', token: input.token},
       ),
+  },
+
+  // ============================================================
+  // Roadmap endpoints (docs/API_ROADMAP.yaml)
+  // Every group below hits an endpoint the backend still needs to
+  // ship. The stubs are wired the same way as the existing groups
+  // so screens can start integrating against the contract now and
+  // the API team can implement per-phase without frontend churn.
+  // ============================================================
+
+  // ---- Phase 1: Home feed aggregator ----
+  home: {
+    get: (input: {token?: string | null; signal?: AbortSignal}) =>
+      request<HomeFeed>('/home', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+  },
+
+  // ---- Phase 2: Institutes ----
+  institutes: {
+    list: (input: {
+      token?: string | null;
+      page?: number;
+      limit?: number;
+      search?: string;
+      sort?: 'followers' | 'recent' | 'name' | 'webseriesCount';
+      city?: string;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<InstituteSummary>('/institutes', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {
+          page: input.page,
+          limit: input.limit,
+          search: input.search,
+          sort: input.sort,
+          city: input.city,
+        },
+      }),
+
+    get: (input: {token?: string | null; id: string; signal?: AbortSignal}) =>
+      request<Institute>(`/institutes/${encodeURIComponent(input.id)}`, {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    listWebseries: (input: {
+      token?: string | null;
+      id: string;
+      status?: WebseriesStatus;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>(
+        `/institutes/${encodeURIComponent(input.id)}/webseries`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {
+            status: input.status,
+            page: input.page,
+            limit: input.limit,
+          },
+        },
+      ),
+
+    listStudents: (input: {
+      token?: string | null;
+      id: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Actor>(
+        `/institutes/${encodeURIComponent(input.id)}/students`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {page: input.page, limit: input.limit},
+        },
+      ),
+
+    follow: (input: {token: string; id: string}) =>
+      request<FollowState>(
+        `/institutes/${encodeURIComponent(input.id)}/follow`,
+        {method: 'POST', token: input.token},
+      ),
+
+    unfollow: (input: {token: string; id: string}) =>
+      request<FollowState>(
+        `/institutes/${encodeURIComponent(input.id)}/follow`,
+        {method: 'DELETE', token: input.token},
+      ),
+
+    followers: (input: {
+      token?: string | null;
+      id: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<FollowerUser>(
+        `/institutes/${encodeURIComponent(input.id)}/followers`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {page: input.page, limit: input.limit},
+        },
+      ),
+  },
+
+  // ---- Phase 3: Web series extensions ----
+  webseriesExtras: {
+    related: (input: {
+      token?: string | null;
+      id: string;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>(
+        `/webseries/${encodeURIComponent(input.id)}/related`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {limit: input.limit},
+        },
+      ),
+
+    trailer: (input: {token?: string | null; id: string; signal?: AbortSignal}) =>
+      request<Trailer>(
+        `/webseries/${encodeURIComponent(input.id)}/trailer`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+        },
+      ),
+  },
+
+  // ---- Phase 4 & 8: Actor extras ----
+  actorsExtras: {
+    filmography: (input: {
+      token?: string | null;
+      id: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>(
+        `/actors/${encodeURIComponent(input.id)}/filmography`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {page: input.page, limit: input.limit},
+        },
+      ),
+
+    clips: (input: {
+      token?: string | null;
+      id: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<ActingClip>(
+        `/actors/${encodeURIComponent(input.id)}/clips`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {page: input.page, limit: input.limit},
+        },
+      ),
+
+    upcoming: (input: {
+      token?: string | null;
+      id: string;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>(
+        `/actors/${encodeURIComponent(input.id)}/upcoming`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+        },
+      ),
+
+    follow: (input: {token: string; id: string}) =>
+      request<FollowState>(
+        `/actors/${encodeURIComponent(input.id)}/follow`,
+        {method: 'POST', token: input.token},
+      ),
+
+    unfollow: (input: {token: string; id: string}) =>
+      request<FollowState>(
+        `/actors/${encodeURIComponent(input.id)}/follow`,
+        {method: 'DELETE', token: input.token},
+      ),
+
+    followers: (input: {
+      token?: string | null;
+      id: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<FollowerUser>(
+        `/actors/${encodeURIComponent(input.id)}/followers`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {page: input.page, limit: input.limit},
+        },
+      ),
+  },
+
+  // ---- Phase 5: Playback ----
+  playback: {
+    get: (input: {token: string; episodeId: string; signal?: AbortSignal}) =>
+      request<PlaybackManifest>(
+        `/episodes/${encodeURIComponent(input.episodeId)}/playback`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+        },
+      ),
+
+    // Fire-and-forget-ish. Server may return `{allowed: false}` when another
+    // device booted the caller off the concurrency-limited stream.
+    heartbeat: (input: {token: string; body: HeartbeatRequest}) =>
+      request<{allowed: boolean}>('/playback/heartbeat', {
+        method: 'POST',
+        token: input.token,
+        body: input.body,
+        // Heartbeats are frequent; keep the timeout tight so a stalled call
+        // never blocks the render loop.
+        timeoutMs: 10_000,
+      }),
+  },
+
+  // ---- Phase 5: Watch progress + history ----
+  watchProgress: {
+    upsert: (input: {token: string; body: WatchProgressUpsert}) =>
+      request<WatchProgress>('/watch-progress', {
+        method: 'POST',
+        token: input.token,
+        body: input.body,
+      }),
+
+    get: (input: {token: string; episodeId: string; signal?: AbortSignal}) =>
+      request<WatchProgress>(
+        `/watch-progress/${encodeURIComponent(input.episodeId)}`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+        },
+      ),
+
+    continueWatching: (input: {
+      token: string;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      request<ContinueWatchingItem[]>('/me/continue-watching', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {limit: input.limit},
+      }),
+
+    history: (input: {
+      token: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<WatchHistoryItem>('/me/watch-history', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {page: input.page, limit: input.limit},
+      }),
+
+    removeHistory: (input: {token: string; id: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/me/watch-history/${encodeURIComponent(input.id)}`,
+        {method: 'DELETE', token: input.token},
+      ),
+  },
+
+  // ---- Watchlist ----
+  watchlist: {
+    list: (input: {
+      token: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>('/me/watchlist', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {page: input.page, limit: input.limit},
+      }),
+
+    add: (input: {token: string; webSeriesId: string}) =>
+      request<MessageResponseData | Record<string, never>>('/me/watchlist', {
+        method: 'POST',
+        token: input.token,
+        body: {webSeriesId: input.webSeriesId},
+      }),
+
+    remove: (input: {token: string; webSeriesId: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/me/watchlist/${encodeURIComponent(input.webSeriesId)}`,
+        {method: 'DELETE', token: input.token},
+      ),
+  },
+
+  // ---- Phase 6: Search ----
+  search: {
+    query: (input: {
+      token?: string | null;
+      q: string;
+      type?: 'all' | SearchEntityType;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      request<SearchResult>('/search', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {q: input.q, type: input.type, limit: input.limit},
+      }),
+
+    suggest: (input: {
+      token?: string | null;
+      q: string;
+      signal?: AbortSignal;
+    }) =>
+      request<SearchSuggestion[]>('/search/suggest', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {q: input.q},
+        // Suggest is called on every keystroke — fail fast rather than
+        // hang the input while the server wakes up.
+        timeoutMs: 8_000,
+      }),
+
+    history: (input: {token: string; signal?: AbortSignal}) =>
+      request<SearchHistoryItem[]>('/me/search-history', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    recordHistory: (input: {token: string; query: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        '/me/search-history',
+        {
+          method: 'POST',
+          token: input.token,
+          body: {query: input.query},
+        },
+      ),
+
+    clearHistory: (input: {token: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        '/me/search-history',
+        {method: 'DELETE', token: input.token},
+      ),
+
+    removeHistoryItem: (input: {token: string; id: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/me/search-history/${encodeURIComponent(input.id)}`,
+        {method: 'DELETE', token: input.token},
+      ),
+  },
+
+  // ---- Phase 7: Discover ----
+  discover: {
+    genres: (input: {token?: string | null; signal?: AbortSignal} = {}) =>
+      request<Genre[]>('/genres', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    byGenre: (input: {
+      token?: string | null;
+      slug: string;
+      page?: number;
+      limit?: number;
+      sort?: 'trending' | 'newest' | 'rating';
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>(
+        `/genres/${encodeURIComponent(input.slug)}/webseries`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {
+            page: input.page,
+            limit: input.limit,
+            sort: input.sort,
+          },
+        },
+      ),
+
+    trending: (input: {
+      token?: string | null;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>('/discover/trending', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {limit: input.limit},
+      }),
+
+    collegeStories: (input: {
+      token?: string | null;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>('/discover/college-stories', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {limit: input.limit},
+      }),
+
+    shortFilms: (input: {
+      token?: string | null;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Webseries>('/discover/short-films', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {limit: input.limit},
+      }),
+  },
+
+  // ---- Reviews + ratings ----
+  reviews: {
+    rate: (input: {token: string; webSeriesId: string; stars: number}) =>
+      request<RatingSummary>(
+        `/webseries/${encodeURIComponent(input.webSeriesId)}/rate`,
+        {
+          method: 'POST',
+          token: input.token,
+          body: {stars: input.stars},
+        },
+      ),
+
+    unrate: (input: {token: string; webSeriesId: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/webseries/${encodeURIComponent(input.webSeriesId)}/rate`,
+        {method: 'DELETE', token: input.token},
+      ),
+
+    list: (input: {
+      token?: string | null;
+      webSeriesId: string;
+      page?: number;
+      limit?: number;
+      sort?: 'recent' | 'helpful' | 'stars_desc' | 'stars_asc';
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Review>(
+        `/webseries/${encodeURIComponent(input.webSeriesId)}/reviews`,
+        {
+          method: 'GET',
+          token: input.token,
+          signal: input.signal,
+          query: {
+            page: input.page,
+            limit: input.limit,
+            sort: input.sort,
+          },
+        },
+      ),
+
+    create: (input: {
+      token: string;
+      webSeriesId: string;
+      text: string;
+      stars?: number;
+    }) =>
+      request<Review>(
+        `/webseries/${encodeURIComponent(input.webSeriesId)}/reviews`,
+        {
+          method: 'POST',
+          token: input.token,
+          body: {text: input.text, stars: input.stars},
+        },
+      ),
+
+    update: (input: {
+      token: string;
+      id: string;
+      text?: string;
+      stars?: number;
+    }) => {
+      const body: Record<string, unknown> = {};
+      if (input.text !== undefined) body.text = input.text;
+      if (input.stars !== undefined) body.stars = input.stars;
+      return request<Review>(`/reviews/${encodeURIComponent(input.id)}`, {
+        method: 'PATCH',
+        token: input.token,
+        body,
+      });
+    },
+
+    delete: (input: {token: string; id: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/reviews/${encodeURIComponent(input.id)}`,
+        {method: 'DELETE', token: input.token},
+      ),
+
+    markHelpful: (input: {token: string; id: string}) =>
+      request<{helpfulCount: number; isHelpful: boolean}>(
+        `/reviews/${encodeURIComponent(input.id)}/helpful`,
+        {method: 'POST', token: input.token},
+      ),
+
+    unmarkHelpful: (input: {token: string; id: string}) =>
+      request<MessageResponseData | Record<string, never>>(
+        `/reviews/${encodeURIComponent(input.id)}/helpful`,
+        {method: 'DELETE', token: input.token},
+      ),
+  },
+
+  // ---- Followed lists on /me ----
+  following: {
+    actors: (input: {
+      token: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<Actor>('/me/following/actors', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {page: input.page, limit: input.limit},
+      }),
+
+    institutes: (input: {
+      token: string;
+      page?: number;
+      limit?: number;
+      signal?: AbortSignal;
+    }) =>
+      requestPaginated<InstituteSummary>('/me/following/institutes', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+        query: {page: input.page, limit: input.limit},
+      }),
+  },
+
+  // ---- Phase 9: Uploads (presigned) ----
+  uploads: {
+    presign: (input: {
+      token: string;
+      purpose: UploadPurpose;
+      contentType: string;
+      fileSize?: number;
+    }) =>
+      request<PresignedUpload>('/uploads/presign', {
+        method: 'POST',
+        token: input.token,
+        body: {
+          purpose: input.purpose,
+          contentType: input.contentType,
+          fileSize: input.fileSize,
+        },
+      }),
+
+    confirm: (input: {
+      token: string;
+      key: string;
+      purpose: UploadPurpose;
+      resourceId?: string;
+    }) =>
+      request<{url: string}>('/uploads/confirm', {
+        method: 'POST',
+        token: input.token,
+        body: {
+          key: input.key,
+          purpose: input.purpose,
+          resourceId: input.resourceId,
+        },
+      }),
+  },
+
+  // ---- Preferences ----
+  preferences: {
+    get: (input: {token: string; signal?: AbortSignal}) =>
+      request<UserPreferences>('/me/preferences', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    update: (input: {token: string; body: UserPreferences}) =>
+      request<UserPreferences>('/me/preferences', {
+        method: 'PUT',
+        token: input.token,
+        body: input.body,
+      }),
+
+    getNotifications: (input: {token: string; signal?: AbortSignal}) =>
+      request<NotificationPreferences>('/notifications/preferences', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    updateNotifications: (input: {
+      token: string;
+      body: NotificationPreferences;
+    }) =>
+      request<NotificationPreferences>('/notifications/preferences', {
+        method: 'PUT',
+        token: input.token,
+        body: input.body,
+      }),
+  },
+
+  // ---- Subscriptions (Razorpay) ----
+  subscriptions: {
+    plans: (input: {signal?: AbortSignal} = {}) =>
+      request<SubscriptionPlanTier[]>('/subscriptions/plans', {
+        method: 'GET',
+        signal: input.signal,
+      }),
+
+    mine: (input: {token: string; signal?: AbortSignal}) =>
+      request<UserSubscription>('/subscriptions/my', {
+        method: 'GET',
+        token: input.token,
+        signal: input.signal,
+      }),
+
+    checkout: (input: {token: string; planId: string}) =>
+      request<CheckoutSession>('/subscriptions/checkout', {
+        method: 'POST',
+        token: input.token,
+        body: {planId: input.planId},
+      }),
+
+    verify: (input: {
+      token: string;
+      razorpayOrderId: string;
+      razorpayPaymentId: string;
+      razorpaySignature: string;
+    }) =>
+      request<UserSubscription>('/subscriptions/verify', {
+        method: 'POST',
+        token: input.token,
+        body: {
+          razorpayOrderId: input.razorpayOrderId,
+          razorpayPaymentId: input.razorpayPaymentId,
+          razorpaySignature: input.razorpaySignature,
+        },
+      }),
+
+    cancel: (input: {token: string}) =>
+      request<UserSubscription>('/subscriptions/cancel', {
+        method: 'POST',
+        token: input.token,
+      }),
+  },
+
+  // ---- App config ----
+  config: {
+    get: (input: {signal?: AbortSignal} = {}) =>
+      request<AppConfig>('/app/config', {
+        method: 'GET',
+        signal: input.signal,
+      }),
   },
 };
 
